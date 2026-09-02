@@ -14,7 +14,8 @@ import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { maxBytesFor, allowedMimeFor } from "@/lib/file-rules";
 import { quotePreview, type ThreadMessage } from "@/components/conversation-thread";
-import { Camera, CornerUpLeft, Mic, Paperclip, Send, Video, X } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { Camera, CheckCircle2, CornerUpLeft, Mic, Paperclip, Send, Video, X } from "lucide-react";
 import type { ActionState } from "@/lib/types";
 
 const MAX_VIDEO = maxBytesFor("video");
@@ -30,12 +31,14 @@ export function MessageComposer({
   conversationId,
   disabled,
   replyTo,
-  onCancelReply
+  onCancelReply,
+  fill = false
 }: {
   conversationId: string;
   disabled: boolean;
   replyTo: ThreadMessage | null;
   onCancelReply: () => void;
+  fill?: boolean;
 }) {
   const [textState, textAction, sending] = useActionState(sendTextMessageAction, init);
   const [voiceState, voiceAction, sendingVoice] = useActionState(sendVoiceMessageAction, init);
@@ -139,13 +142,31 @@ export function MessageComposer({
   const uploading = pending !== null;
   const anyBusy = uploading || sendingMedia || sendingVoice;
 
+  if (disabled) {
+    return (
+      <div className="px-3 pb-3">
+        <div className="flex items-center justify-center gap-2 rounded-2xl border border-success/30 bg-success/10 px-4 py-3 text-sm font-bold text-success">
+          <CheckCircle2 className="size-4 shrink-0" />
+          تم الانتهاء من تسليم هذا الواجب
+        </div>
+      </div>
+    );
+  }
+
   return (
     <>
-      {/* Spacer so the scrollable content clears the fixed composer */}
-      <div className="h-44 md:h-32" aria-hidden />
-      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border/70 bg-background/95 shadow-raise backdrop-blur-xl">
+      {/* Spacer so the scrollable content clears the fixed composer (non-fill layouts only) */}
+      {!fill ? <div className="h-44 md:h-32" aria-hidden /> : null}
+      <div
+        className={cn(
+          "border-t border-border/70 bg-background/95 backdrop-blur-xl",
+          fill
+            ? "rounded-b-[var(--radius-lg)]"
+            : "fixed inset-x-0 bottom-0 z-40 shadow-raise"
+        )}
+      >
         <div className="mx-auto w-full max-w-5xl px-4 pt-2 md:px-6">
-          <div className="grid gap-2 pb-[calc(env(safe-area-inset-bottom)_+_var(--nav-h)_+_0.5rem)]">
+          <div className={cn("grid gap-2", fill ? "pb-2.5" : "pb-[calc(env(safe-area-inset-bottom)_+_var(--nav-h)_+_0.5rem)]")}>
     {menuOpen && !uploading ? <div className="fixed inset-0 z-20" onClick={() => setMenuOpen(false)} aria-hidden /> : null}
 
       {staged ? (

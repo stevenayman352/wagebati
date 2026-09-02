@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { Suspense } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
-import { LayoutGrid, Bell, UserRound, Users } from "lucide-react";
+import { LayoutGrid, Bell, UserRound, Users, ClipboardList } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type NavItem = { href: string; label: string; icon: typeof LayoutGrid };
@@ -17,6 +17,7 @@ const ROLE_ITEMS: Record<string, NavItem[]> = {
   teacher: [
     { href: "/teacher", label: "الرئيسية", icon: LayoutGrid },
     { href: "/teacher/classes", label: "الفصول", icon: Users },
+    { href: "/teacher/assignments", label: "الواجبات", icon: ClipboardList },
     { href: "/notifications", label: "الإشعارات", icon: Bell },
     { href: "/teacher?tab=account", label: "الحساب", icon: UserRound }
   ]
@@ -38,9 +39,9 @@ function AppNavContent({ role }: { role: "student" | "teacher" }) {
   return (
     <nav
       aria-label="التنقل الرئيسي"
-      className="fixed inset-x-0 bottom-0 z-40 px-4 md:hidden pb-safe"
+      className="fixed inset-x-0 bottom-0 z-40 px-4 pb-safe"
     >
-      <div className="mx-auto flex max-w-lg items-stretch justify-around rounded-[26px] border border-border/70 bg-card/95 px-2 py-1.5 shadow-raise backdrop-blur-xl">
+      <div className="mx-auto flex max-w-lg items-stretch justify-around rounded-[26px] border border-border/70 bg-card/95 px-2 py-1.5 shadow-raise backdrop-blur-xl md:max-w-2xl">
         {items.map((item) => {
           const active = isActive(item);
           const Icon = item.icon;

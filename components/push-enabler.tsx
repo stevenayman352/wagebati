@@ -4,9 +4,21 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { deletePushSubscriptionAction, getVapidPublicKeyAction, savePushSubscriptionAction } from "@/app/actions/push";
 
-type Status = "checking" | "unsupported" | "idle" | "granting" | "done" | "denied" | "failed";
+type Status = "checking" | "unsupported" | "idle" | "granting" | "done" | "denied" | "failed" | "need-install";
 
 const LOCK = "🔔";
+
+function isIOS() {
+  if (typeof navigator === "undefined") return false;
+  return /ipad|ipod|iphone/i.test(navigator.userAgent);
+}
+
+function isStandalone() {
+  if (typeof window === "undefined") return false;
+  if (window.matchMedia?.("(display-mode: standalone)").matches) return true;
+  if ("standalone" in navigator && (navigator as unknown as { standalone?: boolean }).standalone) return true;
+  return false;
+}
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
@@ -25,7 +37,7 @@ export function PushEnabler() {
     let active = true;
     (async () => {
       if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
-        if (active) setStatus("unsupported");
+        if (active) setStatus(isIOS() && !isStandalone() ? "need-install" : "unsupported");
         return;
       }
       try {
@@ -50,6 +62,10 @@ export function PushEnabler() {
     setStatus("granting");
     setError(null);
     try {
+      if (isIOS() && !isStandalone()) {
+        setStatus("need-install");
+        return;
+      }
       if (Notification.permission === "denied") {
         setStatus("denied");
         return;
@@ -148,11 +164,13 @@ export function PushEnabler() {
               ? "مفعلة — ستظهر التنبيهات حتى عند إغلاق التطبيق."
               : status === "denied"
                 ? "تم رفض الإذن من المتصفح. فعّله من إعدادات الموقع."
-                : status === "unsupported"
-                  ? "لا يدعم متصفحك الإشعارات الفورية."
-                  : status === "failed"
-                    ? `تعذر التفعيل. ${error ?? ""}`
-                    : "فعّل الإشعارات لتصلك التنبيهات على هذا الجهاز."}
+                : status === "need-install"
+                  ? "فعّل الإشعارات من تطبيق واجباتي المثبّت على الشاشة الرئيسية."
+                  : status === "unsupported"
+                    ? "لا يدعم متصفحك الإشعارات الفورية."
+                    : status === "failed"
+                      ? `تعذر التفعيل. ${error ?? ""}`
+                      : "فعّل الإشعارات لتصلك التنبيهات على هذا الجهاز."}
           </p>
         </div>
       </div>
@@ -160,7 +178,7 @@ export function PushEnabler() {
         <Button type="button" variant="outline" size="sm" onClick={() => void disable()}>
           إيقاف
         </Button>
-      ) : status === "unsupported" || status === "denied" ? null : (
+      ) : status === "unsupported" || status === "denied" || status === "need-install" ? null : (
         <Button type="button" size="sm" onClick={() => void enable()} disabled={status === "granting"}>
           {status === "granting" ? "جارٍ التفعيل..." : "تفعيل الإشعارات"}
         </Button>

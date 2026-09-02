@@ -20,7 +20,7 @@ export function PageShell({
   return (
     <main
       dir="rtl"
-      className={cn("mx-auto w-full max-w-5xl px-4 pb-24 pt-5 md:px-6 md:pb-12 md:pt-10", mainClassName)}
+      className={cn("mx-auto w-full max-w-5xl px-4 pb-24 pt-5 md:px-6 md:pb-28 md:pt-10", mainClassName)}
     >
       <div className={cn(wide ? "" : "mx-auto max-w-3xl", className)}>{children}</div>
     </main>

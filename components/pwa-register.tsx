@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import { Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -10,6 +11,8 @@ type InstallPromptEvent = Event & {
 };
 
 export function PwaRegister() {
+  const pathname = usePathname();
+  const isLanding = pathname === "/";
   const [installEvent, setInstallEvent] = useState<InstallPromptEvent | null>(null);
   const [dismissed, setDismissed] = useState(false);
 
@@ -20,6 +23,8 @@ export function PwaRegister() {
   }, []);
 
   useEffect(() => {
+    // The install landing page owns the beforeinstallprompt event at "/".
+    if (isLanding) return;
     const onBeforeInstall = (event: Event) => {
       event.preventDefault();
       setInstallEvent(event as InstallPromptEvent);
@@ -31,7 +36,7 @@ export function PwaRegister() {
       window.removeEventListener("beforeinstallprompt", onBeforeInstall);
       window.removeEventListener("appinstalled", onInstalled);
     };
-  }, []);
+  }, [isLanding]);
 
   if (!installEvent || dismissed) return null;
 

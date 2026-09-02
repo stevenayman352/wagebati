@@ -5,6 +5,7 @@ import { PageShell } from "@/components/page-shell";
 import { AssignmentItem } from "@/components/assignment-item";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { PushEnabler } from "@/components/push-enabler";
 import { Home, Mail, Hash, ShieldCheck } from "lucide-react";
 
 type Row = {
@@ -94,51 +95,57 @@ export default async function StudentPage({
     const due = r.assignment?.due_at ? new Date(r.assignment.due_at).getTime() : null;
     return due !== null && due < nowMs;
   };
-  const overdue = (r: Row) => !hasSub(r) && duePassed(r) && r.status !== "closed";
-
   const needsRevision = rows.filter((r) => r.status === "active" && r.needs_revision);
-  const pending = rows.filter((r) => !hasSub(r) && r.status === "active" && !r.needs_revision && !overdue(r));
-  const overdueRows = rows.filter(overdue);
-  const underReview = rows.filter((r) => hasSub(r) && r.status === "active" && !isGraded(r) && !r.needs_revision);
-  const completed = rows.filter((r) => r.status === "closed" || isGraded(r));
+  const payable = (r: Row) => r.status !== "closed" && !r.needs_revision;
+  const isOverdue = (r: Row) => !isGraded(r) && duePassed(r);
+  const isPending = (r: Row) => !isGraded(r) && !duePassed(r) && !hasSub(r);
+  const overdueRows = rows.filter((r) => payable(r) && isOverdue(r));
+  const pending = rows.filter((r) => payable(r) && isPending(r));
+  const underReview = rows.filter((r) => payable(r) && !isOverdue(r) && !isPending(r));
+  const completed = rows.filter((r) => r.status === "closed");
 
   const firstName = (profile.full_name ?? "").trim().split(/\s+/).slice(0, 2).join(" ");
 
-  const groups: { key: string; title: string; empty: string; rows: Row[]; accent: string }[] = [
+  const groups: { key: string; title: string; empty: string; rows: Row[]; accent: string; state: "completed" | "overdue" | "underReview" }[] = [
     {
       key: "revision",
       title: "يحتاج تعديل",
       empty: "لا توجد واجبات تحتاج تعديل 🎉",
       rows: needsRevision,
-      accent: "text-warning bg-warning/12 border-warning/25"
+      accent: "text-warning bg-warning/12 border-warning/25",
+      state: "underReview"
     },
     {
       key: "overdue",
       title: "فات موعده",
       empty: "لا توجد واجبات متأخرة",
       rows: overdueRows,
-      accent: "text-destructive bg-destructive/10 border-destructive/20"
+      accent: "text-destructive bg-destructive/10 border-destructive/20",
+      state: "overdue"
     },
     {
       key: "pending",
       title: "بانتظار الإرسال",
       empty: "لا توجد واجبات بانتظار الإرسال",
       rows: pending,
-      accent: "text-primary bg-primary/10 border-primary/20"
+      accent: "text-primary bg-primary/10 border-primary/20",
+      state: "underReview"
     },
     {
       key: "underReview",
       title: "قيد المراجعة",
       empty: "لا توجد واجبات قيد المراجعة",
       rows: underReview,
-      accent: "text-muted-foreground bg-muted border-border"
+      accent: "text-muted-foreground bg-muted border-border",
+      state: "underReview"
     },
     {
       key: "completed",
       title: "مكتملة",
       empty: "لا توجد واجبات مكتملة بعد",
       rows: completed,
-      accent: "text-success bg-success/12 border-success/20"
+      accent: "text-success bg-success/12 border-success/20",
+      state: "completed"
     }
   ];
 
@@ -155,14 +162,16 @@ export default async function StudentPage({
               {profile.full_name?.charAt(0) ?? "و"}
             </div>
             <div>
-              <h1 className="font-amiri text-2xl font-bold leading-tight">أهلًا {firstName} 👋</h1>
-              <p className="text-sm text-muted-foreground">هذي واجباتك اللي محتاجة منك خطوة</p>
+              <h1 className="font-amiri text-2xl font-bold leading-tight">أهلًا {firstName} </h1>
+              <p className="text-sm text-muted-foreground">احفظ وسمع كوس يا بطل</p>
             </div>
           </div>
           <div className="flex items-center gap-1.5">
             <NotificationBell userId={profile.id} initialUnread={unreadCount ?? 0} />
           </div>
         </header>
+
+        <PushEnabler />
 
         {/* Action-oriented summary */}
         <section className="relative mb-6 overflow-hidden rounded-[var(--radius-lg)] bg-primary p-5 text-primary-foreground shadow-raise">
@@ -171,11 +180,11 @@ export default async function StudentPage({
           <div className="relative">
             <p className="text-lg font-extrabold leading-snug">
               {totalActionable === 0
-                ? "كل شيء تمام، ما عندك مهام مستعجلة 🎉"
-                : `عندك ${totalActionable} واجبات محتاجة منك خطوة`}
+                ? "كل واجباتك تمام ، برافو "
+                : `عندك ${totalActionable} واجب محتاج منك شغل`}
             </p>
             <p className="mt-0.5 text-xs text-primary-foreground/80">
-              اضغط على الواجب للدخول عليه وتصليح اللي مطلوب
+              اضغط على الواجب للدخول عليه وتصليح المطلوب
             </p>
             <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
               {groups.slice(0, 4).map((g) => (
@@ -205,7 +214,7 @@ export default async function StudentPage({
               </div>
               <div className="grid gap-2.5">
                 {g.rows.map((r) => (
-                  <AssignmentItem key={r.id} href={`/student/assignments/${r.id}`} row={r} accent={g.accent} />
+                  <AssignmentItem key={r.id} href={`/student/assignments/${r.id}`} row={r} accent={g.accent} state={g.state} />
                 ))}
               </div>
             </section>

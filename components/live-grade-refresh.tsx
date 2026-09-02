@@ -9,16 +9,22 @@ export function LiveGradeRefresh({ conversationId }: { conversationId: string })
 
   useEffect(() => {
     const supabase = createSupabaseBrowserClient();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
     const channel = supabase
       .channel(`grade-${conversationId}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "grades", filter: `conversation_id=eq.${conversationId}` },
-        () => router.refresh()
+        () => {
+          if (timer) clearTimeout(timer);
+          timer = setTimeout(() => router.refresh(), 400);
+        }
       )
       .subscribe();
 
     return () => {
+      if (timer) clearTimeout(timer);
       void supabase.removeChannel(channel);
     };
   }, [conversationId, router]);

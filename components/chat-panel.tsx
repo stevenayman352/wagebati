@@ -37,7 +37,7 @@ export function ChatPanel({
         grade={grade}
         maxGrade={maxGrade}
       />
-      <MessageComposer conversationId={conversationId} disabled={disabled} replyTo={reply} onCancelReply={() => setReply(null)} />
+      <MessageComposer conversationId={conversationId} disabled={disabled} replyTo={reply} onCancelReply={() => setReply(null)} fill={fill} />
     </>
   );
 }

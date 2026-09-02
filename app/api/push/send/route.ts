@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextRequest } from "next/server";
 import webpush from "web-push";
+import { rateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -10,6 +11,11 @@ const service = () =>
   });
 
 export async function POST(req: NextRequest) {
+  const rl = rateLimit({ request: req, max: 30, windowMs: 60_000 });
+  if (!rl.allowed) {
+    return Response.json({ error: "rate limited" }, { status: 429 });
+  }
+
   let parsed: { userId?: unknown; title?: unknown; body?: unknown; url?: unknown } = {};
   try {
     parsed = await req.json();

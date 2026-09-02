@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Clock3, CheckCircle2, FileText, RefreshCw } from "lucide-react";
+import { Clock3, CheckCircle2, FileText, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type Row = {
@@ -18,28 +18,7 @@ type Row = {
   } | null;
 };
 
-function formatDue(value: string | null | undefined) {
-  if (!value) return "بدون موعد";
-  const d = new Date(value);
-  const now = Date.now();
-  const diff = d.getTime() - now;
-  const days = Math.ceil(diff / 86400000);
-  const time = d.toLocaleString("ar", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
-  if (diff < 0) return "فات الموعد";
-  if (days <= 1) {
-    const h = Math.ceil(diff / 3600000);
-    return h > 0 ? `باقي ${h} ساعة` : "باقي وقت قليل";
-  }
-  return `مستحق ${time}`;
-}
-
-function isLateDue(value: string | null | undefined) {
-  if (!value) return false;
-  return new Date(value).getTime() < Date.now();
-}
-
-export function AssignmentItem({ href, row, accent }: { href: string; row: Row; accent: string }) {
-  const hasSub = (r: Row) => (r.submissions?.[0]?.count ?? 0) > 0;
+export function AssignmentItem({ href, row, accent, state }: { href: string; row: Row; accent: string; state: "completed" | "overdue" | "underReview" }) {
   const isGraded = (r: Row) => r.grades?.grade !== undefined && r.grades?.grade !== null;
   const gradePct =
     isGraded(row) && row.assignment?.max_grade
@@ -49,24 +28,18 @@ export function AssignmentItem({ href, row, accent }: { href: string; row: Row; 
   let statusLabel: string;
   let statusIcon: typeof Clock3;
   let chipCls: string;
-  if (row.status === "active" && row.needs_revision) {
-    statusLabel = "يحتاج تعديل";
-    statusIcon = RefreshCw;
-    chipCls = "bg-warning/12 text-warning-foreground";
-  } else if (!hasSub(row) && row.status === "active") {
-    statusLabel = row.assignment?.due_at ? formatDue(row.assignment.due_at) : "أنتظر الحل";
-    statusIcon = Clock3;
-    chipCls = isLateDue(row.assignment?.due_at)
-      ? "bg-destructive/10 text-destructive"
-      : "bg-primary/10 text-primary";
-  } else if (hasSub(row) && row.status === "active" && !isGraded(row)) {
+  if (state === "completed") {
+    statusLabel = "مكتمل";
+    statusIcon = CheckCircle2;
+    chipCls = "bg-success/12 text-success";
+  } else if (state === "overdue") {
+    statusLabel = "فات الموعد";
+    statusIcon = XCircle;
+    chipCls = "bg-destructive/10 text-destructive";
+  } else {
     statusLabel = "قيد المراجعة";
     statusIcon = Clock3;
     chipCls = "bg-muted text-muted-foreground";
-  } else {
-    statusLabel = isGraded(row) ? `الدرجة: ${row.grades!.grade}` : "مكتمل";
-    statusIcon = CheckCircle2;
-    chipCls = "bg-success/12 text-success";
   }
   const StatusIcon = statusIcon;
 

@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { PageShell } from "@/components/page-shell";
 import { AppNav } from "@/components/app-nav";
 
-import { MessagesSquare, ArrowLeft, ChevronUp, Clock3, RefreshCw } from "lucide-react";
+import { MessagesSquare, ArrowLeft, ChevronUp, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 function fmt(value: string | null) {
@@ -110,9 +110,9 @@ export default async function TeacherConversationsPage({
 
   const filtered = raw.filter((c) => {
     if (activeFilter === "review")
-      return c.status === "active" && !c.needs_revision && anySubmitted.has(c.id) && !graded.has(c.id);
+      return c.status === "active" && !c.needs_revision && (anySubmitted.has(c.id) || graded.has(c.id));
     if (activeFilter === "revision") return c.needs_revision && c.status !== "closed";
-    if (activeFilter === "notsubmitted") return c.status === "active" && !anySubmitted.has(c.id);
+    if (activeFilter === "notsubmitted") return c.status === "active" && !anySubmitted.has(c.id) && !graded.has(c.id);
     if (activeFilter === "recent") return recentlySubmitted.has(c.id);
     return true;
   });
@@ -191,26 +191,18 @@ export default async function TeacherConversationsPage({
                 </div>
                 <div className="grid gap-2">
                   {rows.map((c) => {
-                    const due = c.assignment?.due_at ? new Date(c.assignment.due_at).getTime() : null;
                     const isRevision = c.needs_revision && c.status !== "closed";
-                    const isOverdue = !anySubmitted.has(c.id) && due !== null && due < nowMs;
                     const unreadCount = unread.get(c.id) ?? 0;
                     let StatusBadge: ReactNode =
                       c.status === "closed" ? (
                         <Badge variant="secondary">مكتمل</Badge>
                       ) : (
-                        <Badge variant="success">جارٍ</Badge>
+                        <Badge variant="success">قيد المراجعة</Badge>
                       );
                     if (isRevision)
                       StatusBadge = (
                         <Badge variant="warning">
                           <RefreshCw className="size-3" /> مراجعة
-                        </Badge>
-                      );
-                    if (isOverdue)
-                      StatusBadge = (
-                        <Badge variant="destructive">
-                          <Clock3 className="size-3" /> متأخر
                         </Badge>
                       );
                     return (
@@ -222,7 +214,7 @@ export default async function TeacherConversationsPage({
                         <span
                           className={cn(
                             "flex size-11 shrink-0 items-center justify-center rounded-xl",
-                            isRevision ? "bg-warning/15 text-warning" : isOverdue ? "bg-destructive/10 text-destructive" : "bg-primary/10 text-primary"
+                            isRevision ? "bg-warning/15 text-warning" : "bg-primary/10 text-primary"
                           )}
                         >
                           <MessagesSquare className="size-5" />

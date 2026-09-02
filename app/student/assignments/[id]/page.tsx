@@ -1,17 +1,15 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { AppNav } from "@/components/app-nav";
 import { ChatPanel } from "@/components/chat-panel";
 import { LiveGradeRefresh } from "@/components/live-grade-refresh";
 import { SubmissionHistory } from "@/components/submission-history";
 import type { ThreadMessage } from "@/components/conversation-thread";
-import { dueStatusOf, formatDueDate } from "@/components/due-date-card";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
-import { ArrowRight, Paperclip, CalendarDays, Trophy, ChevronDown } from "lucide-react";
+import { ArrowRight, Paperclip, ChevronDown, CheckCircle2, XCircle, Clock3 } from "lucide-react";
 
 type SubmissionImage = {
   id: string;
@@ -76,54 +74,61 @@ export default async function StudentAssignmentPage({ params }: { params: Promis
       .select("id, sender_id, sender_role, kind, body, storage_path, file_name, mime_type, file_size, duration_seconds, deleted_from_storage_at, reply_to_message_id, created_at")
       .eq("conversation_id", id)
       .order("created_at")
+      .limit(1000)
   ]);
 
   const attachments = (attachmentsRes.data ?? []) as { id: string; file_name: string; storage_path: string }[];
   const submissions = (submissionsRes.data ?? []) as unknown as Submission[];
   const threadMessages = (messagesRes.data ?? []) as unknown as ThreadMessage[];
 
-  const [attachmentUrls, submissionUrls] = await Promise.all([
-    Promise.all(
-      attachments.map(async (a) => {
-        const { data } = await supabase.storage.from("assignment-attachments").createSignedUrl(a.storage_path, 600);
-        return data?.signedUrl ?? null;
-      })
-    ),
-    (async () => {
-      const mediaTargets: { key: string; path: string }[] = submissions.flatMap((s) => [
-        ...(s.video_path ? [{ key: `video-${s.id}`, path: s.video_path }] : []),
-        ...(s.voice_path ? [{ key: `voice-${s.id}`, path: s.voice_path }] : []),
-        ...((s.submission_images ?? []).map((img) => ({ key: `img-${img.id}`, path: img.storage_path })))
-      ]);
-      const urls: Record<string, string | null> = {};
-      for (const t of mediaTargets) {
-        const { data } = await supabase.storage.from("submissions").createSignedUrl(t.path, 600);
-        urls[t.key] = data?.signedUrl ?? null;
-      }
-      return urls;
-    })()
+  const mediaTargets: { key: string; path: string }[] = submissions.flatMap((s) => [
+    ...(s.video_path ? [{ key: `video-${s.id}`, path: s.video_path }] : []),
+    ...(s.voice_path ? [{ key: `voice-${s.id}`, path: s.voice_path }] : []),
+    ...(s.submission_images ?? []).map((img) => ({ key: `img-${img.id}`, path: img.storage_path }))
   ]);
 
+  const [attachmentUrls, submissionUrlResults, messageUrlResults] = await Promise.all([
+    attachments.length
+      ? supabase.storage.from("assignment-attachments").createSignedUrls(attachments.map((a) => a.storage_path), 600)
+      : Promise.resolve({ data: [] }),
+    mediaTargets.length
+      ? supabase.storage.from("submissions").createSignedUrls(mediaTargets.map((t) => t.path), 600)
+      : Promise.resolve({ data: [] }),
+    threadMessages.some((m) => m.storage_path)
+      ? supabase.storage
+          .from("message-media")
+          .createSignedUrls(
+            threadMessages.filter((m): m is typeof m & { storage_path: string } => Boolean(m.storage_path)).map((m) => m.storage_path),
+            600
+          )
+      : Promise.resolve({ data: [] })
+  ]);
+
+  const attachmentUrlByPath = new Map((attachmentUrls.data ?? []).map((u) => [u.path, u.signedUrl ?? null]));
+  const attachmentUrlList = attachments.map((a) => attachmentUrlByPath.get(a.storage_path) ?? null);
+
+  const submissionUrlByPath = new Map((submissionUrlResults.data ?? []).map((u) => [u.path, u.signedUrl ?? null]));
+  const submissionUrls: Record<string, string | null> = {};
+  for (const t of mediaTargets) submissionUrls[t.key] = submissionUrlByPath.get(t.path) ?? null;
+
   const active = conv.status === "active";
-  const { data: canSubmitData } = await supabase.rpc("can_submit_to_conversation", { target_conversation: id });
-  const canSubmit = canSubmitData === true;
   const grade = conv.grades?.grade ?? null;
   const maxGrade = conv.assignment?.max_grade ?? 20;
-  const dueAt = conv.assignment?.due_at ?? null;
-  const dueStatus = dueStatusOf(dueAt);
-  const dueToneClass = {
-    ok: "border-warning/25 bg-warning/10 text-warning-foreground",
-    soon: "border-warning/40 bg-warning/15 text-warning-foreground",
-    over: "border-destructive/30 bg-destructive/10 text-destructive",
-    none: "border-border/70 bg-muted/40 text-muted-foreground"
-  }[dueStatus.tone];
+  // Server component evaluated once per request; the timestamp is fresh each render.
+  // eslint-disable-next-line react-hooks/purity
+  const nowMs = Date.now();
 
+  const homeworkState =
+    conv.status === "closed"
+      ? { label: grade !== null ? `مكتمل · الدرجة ${grade}/${maxGrade}` : "مكتمل", cls: "border-success/30 bg-success/10 text-success", Icon: CheckCircle2 }
+      : grade === null && conv.assignment?.due_at && nowMs > new Date(conv.assignment.due_at).getTime()
+        ? { label: "فات الموعد", cls: "border-destructive/30 bg-destructive/10 text-destructive", Icon: XCircle }
+        : { label: "قيد المراجعة", cls: "border-border/70 bg-muted/40 text-muted-foreground", Icon: Clock3 };
+
+  const messageUrlByPath = new Map((messageUrlResults.data ?? []).map((u) => [u.path, u.signedUrl ?? null]));
   const messageSigned: Record<string, string | null> = {};
   for (const m of threadMessages) {
-    if (m.storage_path) {
-      const { data } = await supabase.storage.from("message-media").createSignedUrl(m.storage_path, 600);
-      messageSigned[m.id] = data?.signedUrl ?? null;
-    }
+    if (m.storage_path) messageSigned[m.id] = messageUrlByPath.get(m.storage_path) ?? null;
   }
 
   return (
@@ -142,32 +147,14 @@ export default async function StudentAssignmentPage({ params }: { params: Promis
               <h1 className="truncate text-lg font-extrabold leading-snug">{conv.assignment?.title}</h1>
             </div>
             {submissions.length ? <SubmissionHistory submissions={submissions} urls={submissionUrls} /> : null}
-            {conv.status === "closed" ? (
-              <Badge variant="success">مكتمل</Badge>
-            ) : canSubmit ? (
-              <Badge>متاح للإرسال</Badge>
-            ) : (
-              <Badge variant="outline">غير متاح</Badge>
-            )}
-            {conv.needs_revision && active ? <Badge variant="warning">طلب مراجعة</Badge> : null}
+            <span className={cn("inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-bold", homeworkState.cls)}>
+              <homeworkState.Icon className="size-3.5" />
+              {homeworkState.label}
+            </span>
           </div>
 
-          {/* Meta chips: due date + current mark */}
-          <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-2">
-            <span className={cn("inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-bold", dueToneClass)}>
-              <CalendarDays className="size-3.5" />
-              {formatDueDate(dueAt)} · {dueStatus.label}
-            </span>
-            <span
-              className={cn(
-                "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-bold",
-                grade !== null ? "border-success/30 bg-success/10 text-success" : "border-border/70 bg-muted/40 text-muted-foreground"
-              )}
-            >
-              <Trophy className="size-3.5" />
-              {grade !== null ? `الدرجة: ${grade} / ${maxGrade}` : "بانتظار التقييم"}
-            </span>
-            {conv.assignment?.instructions ? (
+          {conv.assignment?.instructions ? (
+            <div className="mx-auto flex w-full max-w-5xl items-center gap-2">
               <details className="group">
                 <summary className="inline-flex list-none cursor-pointer items-center gap-1 rounded-full border border-border/70 bg-muted/40 px-3 py-1 text-xs font-bold text-muted-foreground transition-colors [&::-webkit-details-marker]:hidden">
                   <Paperclip className="size-3.5" />
@@ -181,18 +168,18 @@ export default async function StudentAssignmentPage({ params }: { params: Promis
                       <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">مرفقات ({attachments.length})</p>
                       <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-6">
                         {attachments.map((a, i) =>
-                          attachmentUrls[i] ? (
+                          attachmentUrlList[i] ? (
                             // eslint-disable-next-line @next/next/no-img-element
                             <img
                               key={a.id}
-                              src={attachmentUrls[i] ?? ""}
+                              src={attachmentUrlList[i] ?? ""}
                               alt={a.file_name}
                               className="aspect-square w-full cursor-pointer rounded-lg border border-border/70 object-cover transition-transform hover:scale-[1.03]"
                             />
                           ) : (
                             <a
                               key={a.id}
-                              href={attachmentUrls[i] ?? "#"}
+                              href={attachmentUrlList[i] ?? "#"}
                               className="flex aspect-square w-full items-center justify-center rounded-lg border border-dashed border-border text-xs text-muted-foreground"
                             >
                               {a.file_name}
@@ -204,12 +191,12 @@ export default async function StudentAssignmentPage({ params }: { params: Promis
                   ) : null}
                 </div>
               </details>
-            ) : null}
-          </div>
+            </div>
+          ) : null}
         </header>
 
         {/* Conversation — fills remaining viewport height; the chat scrolls, header stays */}
-        <main className="min-h-0 flex-1 px-4 pt-3 pb-24 md:px-6 md:pb-3">
+        <main className="min-h-0 flex-1 px-2 pt-2 pb-20 sm:px-4 md:px-6 md:pb-24">
           <div className="mx-auto flex h-full w-full max-w-5xl flex-col rounded-[var(--radius-lg)] border border-border/70 bg-card shadow-card">
             <ChatPanel
               conversationId={id}

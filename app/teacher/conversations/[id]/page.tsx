@@ -10,8 +10,7 @@ import { Button } from "@/components/ui/button";
 import { AppNav } from "@/components/app-nav";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { cn } from "@/lib/utils";
-import { dueStatusOf, formatDueDate } from "@/components/due-date-card";
+import { formatDueDate } from "@/components/due-date-card";
 import { ArrowLeft, CalendarDays, UserRound } from "lucide-react";
 
 export default async function TeacherConversationPage({ params }: { params: Promise<{ id: string }> }) {
@@ -42,29 +41,25 @@ export default async function TeacherConversationPage({ params }: { params: Prom
     .from("messages")
     .select("id, sender_id, sender_role, kind, body, storage_path, file_name, mime_type, file_size, duration_seconds, deleted_from_storage_at, reply_to_message_id, created_at")
     .eq("conversation_id", id)
-    .order("created_at");
+    .order("created_at")
+    .limit(1000);
 
   const messages = (messagesRes ?? []) as unknown as ThreadMessage[];
 
+  const mediaMessages = messages.filter((m): m is ThreadMessage & { storage_path: string } => Boolean(m.storage_path));
+  const signedUrls = mediaMessages.length
+    ? await supabase.storage
+        .from("message-media")
+        .createSignedUrls(mediaMessages.map((m) => m.storage_path as string), 600)
+    : { data: [] };
+  const urlByPath = new Map((signedUrls.data ?? []).map((u) => [u.path, u.signedUrl ?? null]));
   const messagesSigned: Record<string, string | null> = {};
-  for (const m of messages) {
-    if (m.storage_path) {
-      const { data } = await supabase.storage.from("message-media").createSignedUrl(m.storage_path, 600);
-      messagesSigned[m.id] = data?.signedUrl ?? null;
-    }
-  }
+  for (const m of mediaMessages) messagesSigned[m.id] = urlByPath.get(m.storage_path) ?? null;
 
   const closed = conv.status === "closed";
   const grade = conv.grades?.grade ?? null;
   const maxGrade = conv.assignment?.max_grade ?? 20;
   const dueAt = conv.assignment?.due_at ?? null;
-  const dueStatus = dueStatusOf(dueAt);
-  const dueToneClass = {
-    ok: "border-warning/25 bg-warning/10 text-warning-foreground",
-    soon: "border-warning/40 bg-warning/15 text-warning-foreground",
-    over: "border-destructive/30 bg-destructive/10 text-destructive",
-    none: "border-border/70 bg-muted/40 text-muted-foreground"
-  }[dueStatus.tone];
 
   return (
     <>
@@ -81,7 +76,7 @@ export default async function TeacherConversationPage({ params }: { params: Prom
               <h1 className="truncate text-lg font-extrabold leading-snug">{conv.assignment?.title}</h1>
             </div>
             {conv.needs_revision && !closed ? <Badge variant="warning">بانتظار مراجعة الطالب</Badge> : null}
-            {closed ? <Badge variant="success">مكتمل</Badge> : <Badge>جارٍ</Badge>}
+            {closed ? <Badge variant="success">مكتمل</Badge> : <Badge>قيد المراجعة</Badge>}
           </div>
 
           <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-2">
@@ -91,9 +86,9 @@ export default async function TeacherConversationPage({ params }: { params: Prom
                 {conv.student.full_name} ({conv.student.code})
               </span>
             ) : null}
-            <span className={cn("inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-bold", dueToneClass)}>
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-muted/40 px-3 py-1 text-xs font-bold text-muted-foreground">
               <CalendarDays className="size-3.5" />
-              {formatDueDate(dueAt)} · {dueStatus.label}
+              {formatDueDate(dueAt)}
             </span>
             <GradeAutosave conversationId={id} maxGrade={maxGrade} initialGrade={grade} />
             {closed ? (
@@ -105,7 +100,7 @@ export default async function TeacherConversationPage({ params }: { params: Prom
         </header>
 
         {/* Conversation — fills remaining viewport height; the chat scrolls, header stays */}
-        <main className="min-h-0 flex-1 px-4 pt-3 pb-24 md:px-6 md:pb-3">
+        <main className="min-h-0 flex-1 px-4 pt-3 pb-24 md:px-6 md:pb-24">
           <div className="mx-auto flex h-full w-full max-w-5xl flex-col rounded-[var(--radius-lg)] border border-border/70 bg-card shadow-card">
             <ChatPanel conversationId={id} initial={messages} signed={messagesSigned} mineId={profile.id} disabled={closed} fill grade={grade} maxGrade={maxGrade} />
           </div>

@@ -13,9 +13,10 @@ import {
   publishAssignmentAction
 } from "@/app/actions/teacher";
 import { NotificationBell } from "@/components/notification-bell";
+import { PushEnabler } from "@/components/push-enabler";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { CheckCircle2, Plus, RefreshCw, Users, FileText, Paperclip, Mail, Hash, ShieldCheck, Hourglass, ClipboardCheck } from "lucide-react";
+import { CheckCircle2, Plus, Users, FileText, Paperclip, Mail, Hash, ShieldCheck, ClipboardCheck } from "lucide-react";
 
 type Row = {
   id: string;
@@ -153,10 +154,8 @@ export default async function TeacherPage({
   const gradedIds = new Set((allGrades.data ?? []).map((g) => g.conversation_id as string));
 
   const toReview = conversations.filter(
-    (c) => c.status === "active" && !c.needs_revision && submittedIds.has(c.id) && !gradedIds.has(c.id)
+    (c) => c.status === "active" && !c.needs_revision && (submittedIds.has(c.id) || gradedIds.has(c.id))
   ).length;
-  const needsRevision = conversations.filter((c) => c.needs_revision === true).length;
-  const notSubmitted = conversations.filter((c) => c.status === "active" && !submittedIds.has(c.id)).length;
   const sentRecently = recentlySubmitted.size;
 
   const studentCounts = new Map<string, number>();
@@ -166,8 +165,6 @@ export default async function TeacherPage({
 
   const metrics = [
     { href: "/teacher/conversations?filter=review", count: toReview, label: "قيد المراجعة", icon: ClipboardCheck, tone: "text-primary bg-primary/10" },
-    { href: "/teacher/conversations?filter=revision", count: needsRevision, label: "مطلوب تعديل", icon: RefreshCw, tone: "text-warning bg-warning/12" },
-    { href: "/teacher/conversations?filter=notsubmitted", count: notSubmitted, label: "لم يتم التسليم", icon: Hourglass, tone: "text-destructive bg-destructive/10" },
     { href: "/teacher/conversations?filter=recent", count: sentRecently, label: "تم التسليم (7 أيام)", icon: CheckCircle2, tone: "text-success bg-success/12" }
   ];
 
@@ -176,16 +173,17 @@ export default async function TeacherPage({
       <PageShell wide>
         <header className="mb-6 flex items-center justify-between gap-3">
           <div>
-            <h1 className="font-amiri text-[var(--text-h1)] font-bold">أهلًا {profile.full_name?.trim().split(/\s+/).slice(0, 2).join(" ") ?? "بك"}</h1>
-            <p className="mt-0.5 text-sm text-muted-foreground">تقدّم طلابك في لمحة</p>
+            <h1 className="mt-3 font-amiri text-3xl font-bold">أهلًا يا {profile.full_name?.trim().split(/\s+/).slice(0, 2).join(" ") ?? "مُدرّس"}</h1>
           </div>
           <div className="flex items-center gap-1.5">
             <NotificationBell userId={profile.id} initialUnread={unreadCount ?? 0} />
           </div>
         </header>
 
+        <PushEnabler />
+
         {/* Metrics */}
-        <section className="mb-6 grid grid-cols-2 gap-2.5 lg:grid-cols-4">
+        <section className="mb-6 grid grid-cols-2 gap-2.5 lg:grid-cols-2">
           {metrics.map((m) => {
             const Icon = m.icon;
             return (
@@ -244,10 +242,7 @@ export default async function TeacherPage({
                         </div>
                       </div>
                       <div className="mt-3 flex flex-wrap gap-2">
-                        <Button asChild variant="outline" size="sm">
-                          <Link href={`/teacher/assignments/${a.id}/edit`}>تعديل</Link>
-                        </Button>
-                        {isDraft ? (
+                      {isDraft ? (
                           <>
                             <form action={publishAssignmentAction}>
                               <input type="hidden" name="assignmentId" value={a.id} />

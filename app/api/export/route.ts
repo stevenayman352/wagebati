@@ -8,6 +8,7 @@ import { getCurrentProfile } from "@/lib/auth";
 import { toRow, buildXlsxBuffer, type Row } from "@/lib/export";
 import type { Profile } from "@/lib/types";
 import type { ExportItem } from "@/lib/export";
+import { rateLimit } from "@/lib/rate-limit";
 
 const FONT_FILE = "Cairo-Regular.ttf";
 let cairoBase64: string | null = null;
@@ -32,6 +33,14 @@ async function classNameOf(supabase: DB, classId?: string, studentId?: string): 
 export async function GET(request: NextRequest) {
   const profile = await getCurrentProfile();
   if (!profile) return new Response("Unauthorized", { status: 401 });
+
+  const rl = rateLimit({ request, max: 20, windowMs: 60_000 });
+  if (!rl.allowed) {
+    return new Response("Rate limit exceeded", {
+      status: 429,
+      headers: { "retry-after": String(Math.ceil(rl.retryAfterMs / 1000)) }
+    });
+  }
 
   const params = request.nextUrl.searchParams;
   const target = params.get("target");
