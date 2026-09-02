@@ -308,6 +308,11 @@ export async function deleteAccountAction(formData: FormData) {
 
   await admin.from("class_students").delete().eq("student_id", userId.data);
   await admin.from("class_teachers").delete().eq("teacher_id", userId.data);
+  await admin.from("classes").update({ created_by: null }).eq("created_by", userId.data);
+  await admin.from("assignments").update({ teacher_id: null }).eq("teacher_id", userId.data);
+  await admin.from("assignments").update({ created_by: null }).eq("created_by", userId.data);
+  await admin.from("assignment_attachments").update({ uploaded_by: null }).eq("uploaded_by", userId.data);
+  await admin.from("grades").update({ graded_by: null }).eq("graded_by", userId.data);
   await admin.from("profiles").delete().eq("id", userId.data);
 
   const { error } = await admin.auth.admin.deleteUser(userId.data);
