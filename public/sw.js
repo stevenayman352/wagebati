@@ -1,4 +1,4 @@
-const CACHE_NAME = "wajebaty-v1";
+const CACHE_NAME = "wajebaty-v2";
 const ASSETS = ["/", "/login", "/manifest.webmanifest", "/image.png", "/icon-192.png", "/icon-512.png"];
 
 self.addEventListener("install", (event) => {
@@ -18,7 +18,15 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
   event.respondWith(
-    fetch(event.request).catch(() => caches.match(event.request).then((cached) => cached || (event.request.mode === "navigate" ? caches.match("/login") : undefined)))
+    fetch(event.request).catch(async () => {
+      const cached = await caches.match(event.request);
+      if (cached) return cached;
+      if (event.request.mode === "navigate") {
+        const loginPage = await caches.match("/login");
+        if (loginPage) return loginPage;
+      }
+      return new Response("Offline", { status: 503, headers: { "Content-Type": "text/plain" } });
+    })
   );
 });
 
