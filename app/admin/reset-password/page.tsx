@@ -29,7 +29,6 @@ export default async function AdminResetPasswordPage() {
   const { data: usersRes } = await supabase
     .from("profiles")
     .select("id, full_name, code, role")
-    .neq("role", "admin")
     .order("full_name");
 
   const userOptions = (usersRes ?? []) as unknown as UserRow[];
