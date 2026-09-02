@@ -1,0 +1,241 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+/* Wajebaty — blue & white premium identity */
+:root {
+  color-scheme: light;
+
+  --background: oklch(0.985 0.004 240);          /* warm white canvas */
+  --foreground: oklch(0.22 0.03 258);            /* deep navy-ink text */
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.22 0.03 258);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.22 0.03 258);
+
+  /* Primary brand — confident deep blue */
+  --primary: oklch(0.5 0.2 262);
+  --primary-foreground: oklch(0.99 0.005 240);
+
+  --secondary: oklch(0.955 0.012 255);
+  --secondary-foreground: oklch(0.42 0.08 260);
+
+  --muted: oklch(0.965 0.008 250);
+  --muted-foreground: oklch(0.55 0.025 258);
+
+  --accent: oklch(0.945 0.025 215);              /* soft cyan for accents */
+  --accent-foreground: oklch(0.45 0.11 258);
+
+  --destructive: oklch(0.55 0.19 22);
+  --success: oklch(0.55 0.13 158);               /* green reserved for success */
+  --success-foreground: oklch(1 0 0);
+  --warning: oklch(0.7 0.13 78);
+  --warning-foreground: oklch(0.32 0.06 65);
+
+  --border: oklch(0.925 0.007 250);
+  --input: oklch(0.905 0.01 250);
+  --ring: oklch(0.5 0.2 262);
+
+  /* Subtle gold & cyan brand accents (never overpower the blue) */
+  --gold: oklch(0.72 0.12 80);
+  --cyan: oklch(0.68 0.1 215);
+
+  --chart-1: oklch(0.5 0.2 262);
+  --chart-2: oklch(0.68 0.1 215);
+  --chart-3: oklch(0.72 0.12 80);
+  --chart-4: oklch(0.64 0.17 300);
+  --chart-5: oklch(0.45 0.15 30);
+
+  --radius: 1rem;
+
+  /* Refined, cool-tinted shadow system */
+  --shadow-card: 0 1px 2px 0 oklch(0.25 0.03 258 / 0.04), 0 1px 3px 0 oklch(0.25 0.03 258 / 0.06);
+  --shadow-raise: 0 2px 6px -1px oklch(0.25 0.03 258 / 0.08), 0 6px 18px -2px oklch(0.25 0.03 258 / 0.1);
+
+  /* Typography scale */
+  --text-display: clamp(1.9rem, 6vw, 2.6rem);
+  --text-h1: clamp(1.4rem, 4vw, 1.75rem);
+  --text-h2: clamp(1.15rem, 3vw, 1.3rem);
+  --text-h3: 1.05rem;
+
+  /* Fixed composer + bottom nav heights (mobile docked nav ~72px) */
+  --nav-h: 4.75rem;
+  --composer-h: 6rem;
+}
+
+@media (min-width: 768px) {
+  :root {
+    --nav-h: 0rem;
+  }
+}
+
+@theme inline {
+  --font-sans: var(--font-cairo);
+  --font-amiri: var(--font-amiri);
+  --color-gold: var(--gold);
+  --color-cyan: var(--cyan);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --shadow-card: var(--shadow-card);
+  --shadow-raise: var(--shadow-raise);
+  --radius-sm: calc(var(--radius) * 0.55);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.3);
+  --radius-2xl: calc(var(--radius) * 1.7);
+  --radius-3xl: calc(var(--radius) * 2.1);
+  --radius-4xl: calc(var(--radius) * 2.5);
+  --animate-slide-up: slide-up 0.3s ease-out both;
+  --animate-press: press 0.2s ease-out;
+  --animate-pop: pop 0.18s ease-out both;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "ss01";
+    text-rendering: optimizeLegibility;
+  }
+
+  html {
+    @apply font-sans;
+  }
+
+  /* Refined heading hierarchy (Arabic-first), not everything bold */
+  h1 {
+    font-weight: 800;
+    letter-spacing: -0.01em;
+  }
+
+  button {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  ::selection {
+    background: oklch(0.5 0.2 262 / 0.2);
+  }
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  min-height: 100dvh;
+}
+
+/* Micro-animations */
+@keyframes slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: scale(0.9) translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes press {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(0.97);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@layer utilities {
+  /* Soft push feedback on tappable items (blue-light) */
+  .press {
+    transition: transform 0.2s ease-out;
+    &:active {
+      transform: scale(0.97);
+    }
+  }
+
+  /* Accessible focus glow for interactive cards */
+  .card-focus {
+    transition: border-color 0.2s ease-out, box-shadow 0.2s ease-out;
+    &:focus-visible {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px oklch(0.5 0.2 262 / 0.18);
+    }
+  }
+}
+
+/* Respect reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Slim, unobtrusive scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: oklch(0.87 0.01 250) transparent;
+}
+
+/* Bottom navigation safe-area for iOS standalone */
+.pb-safe {
+  padding-bottom: max(env(safe-area-inset-bottom), 0.75rem);
+}
+
+/* Hide scrollbars for horizontal chip rows */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}

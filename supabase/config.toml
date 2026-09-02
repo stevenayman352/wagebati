@@ -1,0 +1,4 @@
+project_id = "wajebaty"
+
+[functions.cleanup-closed-videos]
+verify_jwt = false
