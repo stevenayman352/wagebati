@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useTransition } from "react";
 import { LayoutGrid, Users, GraduationCap, RefreshCw, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { BrandLogo } from "@/components/brand-logo";
@@ -16,6 +17,7 @@ const NAV = [
 
 export function AdminSidebar() {
   const pathname = usePathname();
+  const [pending, startTransition] = useTransition();
   return (
     <aside className="hidden shrink-0 border-l border-border/70 bg-card md:sticky md:top-0 md:flex md:h-dvh md:w-64 md:flex-col md:p-5">
       <div className="mb-8 flex items-center gap-2.5">
@@ -46,13 +48,20 @@ export function AdminSidebar() {
         })}
       </nav>
       <div className="mt-4 border-t border-border/60 pt-3">
-        <form action={signOutAction}>
+        <form
+          action={() => {
+            startTransition(async () => {
+              await signOutAction();
+            });
+          }}
+        >
           <button
             type="submit"
-            className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+            disabled={pending}
+            className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
           >
             <LogOut className="size-4" />
-            خروج
+            {pending ? "جارِ الخروج..." : "خروج"}
           </button>
         </form>
       </div>

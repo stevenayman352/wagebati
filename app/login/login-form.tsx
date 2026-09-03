@@ -1,5 +1,6 @@
 "use client";
 
+import { useTransition } from "react";
 import { signInAction } from "@/app/actions/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,6 +16,8 @@ export function LoginForm({
   configured: boolean;
   errorText: string | null;
 }) {
+  const [pending, startTransition] = useTransition();
+
   return (
     <main className="relative flex min-h-dvh flex-col overflow-hidden" dir="rtl">
       {/* Soft brand glows */}
@@ -40,7 +43,14 @@ export function LoginForm({
         <div className="rounded-2xl border border-border/70 bg-card p-5 shadow-raise backdrop-blur-sm sm:p-6">
           <h2 className="mb-4 font-bold">تسجيل الدخول</h2>
 
-          <form action={signInAction} className="grid gap-4">
+          <form
+            action={(formData) => {
+              startTransition(async () => {
+                await signInAction(formData);
+              });
+            }}
+            className="grid gap-4"
+          >
             <div className="grid gap-1.5">
               <Label htmlFor="code">كود الحساب</Label>
               <Input
@@ -50,6 +60,7 @@ export function LoginForm({
                 autoComplete="username"
                 required
                 dir="ltr"
+                disabled={pending}
                 className="text-center tracking-[0.35em]"
               />
             </div>
@@ -61,6 +72,7 @@ export function LoginForm({
                 autoComplete="current-password"
                 placeholder="••••••••"
                 className="text-center"
+                disabled={pending}
                 required
               />
             </div>
@@ -76,9 +88,13 @@ export function LoginForm({
               </p>
             ) : null}
 
-            <Button type="submit" size="lg" disabled={!configured} className="mt-1 gap-2">
-              <LogIn className="size-4" />
-              دخول
+            <Button type="submit" size="lg" disabled={!configured || pending} className="mt-1 gap-2">
+              {pending ? (
+                <span className="size-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+              ) : (
+                <LogIn className="size-4" />
+              )}
+              {pending ? "جارِ الدخول..." : "دخول"}
             </Button>
           </form>
         </div>

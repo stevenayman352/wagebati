@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { LayoutGrid, Users, GraduationCap, RefreshCw, LogOut, Menu, X } from "lucide-react";
@@ -20,6 +20,7 @@ const NAV = [
 export function AdminMobileMenu() {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
+  const [pending, startTransition] = useTransition();
 
   useEffect(() => {
     if (!open) return;
@@ -76,13 +77,20 @@ export function AdminMobileMenu() {
           })}
         </nav>
         <div className="border-t border-border/60 p-3">
-          <form action={signOutAction}>
+          <form
+            action={() => {
+              startTransition(async () => {
+                await signOutAction();
+              });
+            }}
+          >
             <button
               type="submit"
-              className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+              disabled={pending}
+              className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
             >
               <LogOut className="size-4" />
-              خروج
+              {pending ? "جارِ الخروج..." : "خروج"}
             </button>
           </form>
         </div>

@@ -31,7 +31,7 @@ export function AdminLayout({
             <div className="flex items-center gap-2.5">
               <AdminMobileMenu />
               <div>
-                <h1 className="text-xl font-bold">{title}</h1>
+                <h1 className="font-amiri text-2xl font-bold">{title}</h1>
                 <p className="hidden text-xs text-muted-foreground sm:block">{subtitle} · {profile.full_name}</p>
               </div>
             </div>

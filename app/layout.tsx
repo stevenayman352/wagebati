@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from "next";
+import { Suspense } from "react";
 import "./globals.css";
 import { PwaRegister } from "@/components/pwa-register";
+import { NavigationLoading } from "@/components/navigation-loading";
 import { Cairo, Amiri } from "next/font/google";
 import { cn } from "@/lib/utils";
 
@@ -18,7 +20,7 @@ const amiri = Amiri({
 
 export const metadata: Metadata = {
   title: "واجباتي",
-  description: "تطبيق واجبات فيديو عربي بسيط وآمن",
+  description: "برنامج استلام واجبات الحان مدرسة الشمامسة",
   manifest: "/manifest.webmanifest",
   icons: {
     icon: [{ url: "/image.png", type: "image/png" }],
@@ -38,6 +40,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="ar" dir="rtl" className={cn("font-sans", cairo.variable, amiri.variable)}>
       <body>
         <PwaRegister />
+        <Suspense fallback={null}>
+          <NavigationLoading />
+        </Suspense>
         {children}
       </body>
     </html>

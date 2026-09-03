@@ -19,12 +19,6 @@ type Row = {
 };
 
 export function AssignmentItem({ href, row, accent, state }: { href: string; row: Row; accent: string; state: "completed" | "overdue" | "underReview" }) {
-  const isGraded = (r: Row) => r.grades?.grade !== undefined && r.grades?.grade !== null;
-  const gradePct =
-    isGraded(row) && row.assignment?.max_grade
-      ? Math.round((row.grades!.grade / row.assignment.max_grade) * 100)
-      : null;
-
   let statusLabel: string;
   let statusIcon: typeof Clock3;
   let chipCls: string;
@@ -62,17 +56,6 @@ export function AssignmentItem({ href, row, accent, state }: { href: string; row
           {row.assignment?.classes?.name ? `${row.assignment.classes.name} · ` : ""}
           {row.assignment?.max_grade ? `${row.assignment.max_grade} درجة` : ""}
         </div>
-        {gradePct !== null ? (
-          <div className="mt-2 flex items-center gap-2">
-            <div className="h-1.5 w-full max-w-28 overflow-hidden rounded-full bg-muted">
-              <div
-                className={cn("h-full rounded-full", gradePct >= 50 ? "bg-success" : "bg-warning")}
-                style={{ width: `${gradePct}%` }}
-              />
-            </div>
-            <span className="text-[0.7rem] font-semibold text-muted-foreground">{gradePct}%</span>
-          </div>
-        ) : null}
       </div>
       <div className="flex shrink-0 flex-col items-end gap-1.5">
         <span className={cn("inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[0.7rem] font-semibold", chipCls)}>

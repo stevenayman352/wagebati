@@ -49,6 +49,7 @@ export function ConversationThread({
   mineId,
   fill = false,
   onReply,
+  showGrade = false,
   grade = null,
   maxGrade = 20
 }: {
@@ -58,6 +59,7 @@ export function ConversationThread({
   mineId: string;
   fill?: boolean;
   onReply?: (message: ThreadMessage) => void;
+  showGrade?: boolean;
   grade?: number | null;
   maxGrade?: number;
 }) {
@@ -249,7 +251,7 @@ export function ConversationThread({
         </div>
       ) : null}
 
-      {grade !== null ? (
+      {showGrade && grade !== null ? (
         <div className="mx-auto flex w-full max-w-md items-center justify-center gap-2 rounded-2xl border border-success/30 bg-success/10 px-4 py-3 text-sm font-bold text-success animate-slide-up">
           <Trophy className="size-4 shrink-0" />
           <span>

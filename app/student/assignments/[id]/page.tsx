@@ -3,7 +3,6 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { AppNav } from "@/components/app-nav";
 import { ChatPanel } from "@/components/chat-panel";
-import { LiveGradeRefresh } from "@/components/live-grade-refresh";
 import { SubmissionHistory } from "@/components/submission-history";
 import type { ThreadMessage } from "@/components/conversation-thread";
 import { requireRole } from "@/lib/auth";
@@ -113,14 +112,13 @@ export default async function StudentAssignmentPage({ params }: { params: Promis
 
   const active = conv.status === "active";
   const grade = conv.grades?.grade ?? null;
-  const maxGrade = conv.assignment?.max_grade ?? 20;
   // Server component evaluated once per request; the timestamp is fresh each render.
   // eslint-disable-next-line react-hooks/purity
   const nowMs = Date.now();
 
   const homeworkState =
     conv.status === "closed"
-      ? { label: grade !== null ? `مكتمل · الدرجة ${grade}/${maxGrade}` : "مكتمل", cls: "border-success/30 bg-success/10 text-success", Icon: CheckCircle2 }
+      ? { label: "مكتمل", cls: "border-success/30 bg-success/10 text-success", Icon: CheckCircle2 }
       : grade === null && conv.assignment?.due_at && nowMs > new Date(conv.assignment.due_at).getTime()
         ? { label: "فات الموعد", cls: "border-destructive/30 bg-destructive/10 text-destructive", Icon: XCircle }
         : { label: "قيد المراجعة", cls: "border-border/70 bg-muted/40 text-muted-foreground", Icon: Clock3 };
@@ -205,10 +203,7 @@ export default async function StudentAssignmentPage({ params }: { params: Promis
               mineId={profile.id}
               disabled={!active}
               fill
-              grade={grade}
-              maxGrade={maxGrade}
             />
-            <LiveGradeRefresh conversationId={id} />
           </div>
         </main>
       </div>

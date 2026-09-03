@@ -102,7 +102,7 @@ export default async function TeacherConversationPage({ params }: { params: Prom
         {/* Conversation — fills remaining viewport height; the chat scrolls, header stays */}
         <main className="min-h-0 flex-1 px-4 pt-3 pb-24 md:px-6 md:pb-24">
           <div className="mx-auto flex h-full w-full max-w-5xl flex-col rounded-[var(--radius-lg)] border border-border/70 bg-card shadow-card">
-            <ChatPanel conversationId={id} initial={messages} signed={messagesSigned} mineId={profile.id} disabled={closed} fill grade={grade} maxGrade={maxGrade} />
+            <ChatPanel conversationId={id} initial={messages} signed={messagesSigned} mineId={profile.id} disabled={closed} fill showGrade grade={grade} maxGrade={maxGrade} />
           </div>
         </main>
       </div>

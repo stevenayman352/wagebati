@@ -11,6 +11,7 @@ export function ChatPanel({
   mineId,
   disabled,
   fill = false,
+  showGrade = false,
   grade = null,
   maxGrade = 20
 }: {
@@ -20,6 +21,7 @@ export function ChatPanel({
   mineId: string;
   disabled: boolean;
   fill?: boolean;
+  showGrade?: boolean;
   grade?: number | null;
   maxGrade?: number;
 }) {
@@ -34,6 +36,7 @@ export function ChatPanel({
         mineId={mineId}
         fill={fill}
         onReply={(m) => setReply(m)}
+        showGrade={showGrade}
         grade={grade}
         maxGrade={maxGrade}
       />
