@@ -12,9 +12,9 @@ function fakeFile(type: string, size: number): File {
 }
 
 describe("MIME_LIMITS / per-kind limits", () => {
-  it("enforces video MP4/MOV up to 250MB", () => {
+  it("enforces video MP4/MOV up to 5GB", () => {
     expect(MIME_LIMITS.video.mimes).toEqual(["video/mp4", "video/quicktime"]);
-    expect(MIME_LIMITS.video.maxBytes).toBe(250 * 1024 * 1024);
+    expect(MIME_LIMITS.video.maxBytes).toBe(5 * 1024 * 1024 * 1024);
   });
 
   it("enforces image JPG/JPEG/PNG/WebP up to 10MB", () => {
@@ -64,18 +64,18 @@ describe("validateUploadFile", () => {
     if (res.ok) expect(res.kind).toBe("video");
   });
 
-  it("accepts a video up to the 250MB limit", () => {
-    const res = validateUploadFile(fakeFile("video/mp4", 250 * 1024 * 1024));
+  it("accepts a video up to the 5GB limit", () => {
+    const res = validateUploadFile(fakeFile("video/mp4", 5 * 1024 * 1024 * 1024));
     expect(res.ok).toBe(true);
   });
 
-  it("rejects a video over 250MB", () => {
-    const res = validateUploadFile(fakeFile("video/mp4", 250 * 1024 * 1024 + 1));
+  it("rejects a video over 5GB", () => {
+    const res = validateUploadFile(fakeFile("video/mp4", 5 * 1024 * 1024 * 1024 + 1));
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.message).toBe("حجم الملف أكبر من الحد المسموح.");
   });
 
-  it("rejects an image over 10MB even though video allows 250MB", () => {
+  it("rejects an image over 10MB even though video allows 5GB", () => {
     const res = validateUploadFile(fakeFile("image/png", 11 * 1024 * 1024));
     expect(res.ok).toBe(false);
   });
@@ -94,7 +94,7 @@ describe("validateUploadFile", () => {
 
 describe("helpers", () => {
   it("returns accept string and max bytes per kind", () => {
-    expect(maxBytesFor("video")).toBe(250 * 1024 * 1024);
+    expect(maxBytesFor("video")).toBe(5 * 1024 * 1024 * 1024);
     expect(maxBytesFor("voice")).toBe(10 * 1024 * 1024);
     expect(allowedMimeFor("image")).toContain("image/jpeg");
   });

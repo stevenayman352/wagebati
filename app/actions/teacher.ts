@@ -182,11 +182,19 @@ export async function saveGradeAction(_: ActionState, formData: FormData): Promi
 
   if (!conversation) return { ok: false, message: "المحادثة غير موجودة." };
 
+  const assignmentEmbed = conversation.assignment as unknown as
+    | { max_grade?: number }
+    | { max_grade?: number }[]
+    | null;
+  const maxGradeFromDb = Array.isArray(assignmentEmbed)
+    ? assignmentEmbed[0]?.max_grade
+    : assignmentEmbed?.max_grade;
+
   const parsed = gradeSchema.safeParse({
     conversationId,
     grade: formData.get("grade"),
     note: "",
-    maxGrade: (conversation.assignment as any)?.[0]?.max_grade
+    maxGrade: maxGradeFromDb
   });
 
   if (!parsed.success) {
@@ -256,11 +264,19 @@ export async function gradeConversationAction(_: ActionState, formData: FormData
 
   if (!conversation) return { ok: false, message: "المحادثة غير موجودة." };
 
+  const assignmentEmbed = conversation.assignment as unknown as
+    | { max_grade?: number }
+    | { max_grade?: number }[]
+    | null;
+  const maxGradeFromDb = Array.isArray(assignmentEmbed)
+    ? assignmentEmbed[0]?.max_grade
+    : assignmentEmbed?.max_grade;
+
   const parsed = gradeSchema.safeParse({
     conversationId,
     grade: formData.get("grade"),
     note: formData.get("note"),
-    maxGrade: (conversation.assignment as any)?.[0]?.max_grade
+    maxGrade: maxGradeFromDb
   });
 
   if (!parsed.success) {
@@ -335,7 +351,7 @@ export async function closeConversationAction(_: ActionState, formData: FormData
   return { ok: true, message: "تم إنهاء المحادثة." };
 }
 
-export async function forceCloseOverdueAction(_: ActionState, formData: FormData): Promise<ActionState> {
+export async function forceCloseOverdueAction(_: ActionState, _formData: FormData): Promise<ActionState> {
   await requireRole(["admin"]);
   const admin = createSupabaseAdminClient();
   const { data, error } = await admin.rpc("close_overdue_conversations");

@@ -6,12 +6,20 @@ import { PageShell } from "@/components/page-shell";
 import { AppNav } from "@/components/app-nav";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, GraduationCap, FileText, ChevronUp, CheckCircle2, Clock3, RefreshCw } from "lucide-react";
+import { ArrowLeft, FileText, GraduationCap, ChevronUp } from "lucide-react";
+import { fetchStudentChatActivity } from "@/lib/assignment-activity";
+import {
+  computeAssignmentStatus,
+  conversationHasActivity,
+  type TeacherStatusKey
+} from "@/lib/assignment-status";
+import { StatusPill, statusVisual } from "@/components/status-chip";
 
 type ConversationRow = {
   id: string;
   status: string;
   needs_revision: boolean;
+  closed_by: string | null;
   last_message_at: string | null;
   student?: { full_name: string; code: number } | null;
   grades?: { grade: number } | null;
@@ -32,7 +40,7 @@ export default async function TeacherAssignmentPage({ params }: { params: Promis
     supabase
       .from("conversations")
       .select(
-        "id, status, needs_revision, last_message_at, student:profiles!conversations_student_id_fkey(full_name, code), grades(grade), submissions(count)"
+        "id, status, needs_revision, closed_by, last_message_at, student:profiles!conversations_student_id_fkey(full_name, code), grades(grade), submissions(count)"
       )
       .eq("assignment_id", id)
       .order("updated_at", { ascending: false })
@@ -60,17 +68,37 @@ export default async function TeacherAssignmentPage({ params }: { params: Promis
   }
 
   const rows = (conversationsRes.data ?? []) as unknown as ConversationRow[];
+  const conversationIds = rows.map((r) => r.id);
 
-  const hasSubmitted = (c: ConversationRow) => {
-    const subs = c.submissions as { count?: number }[] | null | undefined;
-    const subCount = Array.isArray(subs) ? (subs[0]?.count ?? 0) : 0;
-    const graded = c.grades?.grade !== undefined && c.grades?.grade !== null;
-    return c.status === "closed" || graded || subCount > 0;
-  };
-  const submitted = rows.filter(hasSubmitted);
+  const [chatActive, subsRes] = await Promise.all([
+    fetchStudentChatActivity(supabase, conversationIds),
+    conversationIds.length
+      ? supabase.from("submissions").select("conversation_id").in("conversation_id", conversationIds)
+      : Promise.resolve({ data: [] })
+  ]);
+  const hasSubmission = new Set((subsRes.data ?? []).map((s) => s.conversation_id as string));
+
+  // eslint-disable-next-line react-hooks/purity
+  const nowMs = Date.now();
   const maxGrade = assignment.max_grade ?? 20;
 
-  const gradeOf = (c: ConversationRow) => (c.grades?.grade !== undefined && c.grades?.grade !== null ? c.grades.grade : null);
+  const withStatus = rows.map((c) => {
+    const grade = c.grades?.grade;
+    const statusKey = computeAssignmentStatus({
+      role: "teacher",
+      status: c.status,
+      needsRevision: c.needs_revision,
+      closedBy: c.closed_by,
+      hasGrade: grade !== undefined && grade !== null,
+      hasSubmission: hasSubmission.has(c.id) || (c.submissions?.[0]?.count ?? 0) > 0,
+      hasStudentMessage: chatActive.has(c.id),
+      dueAt: assignment.due_at,
+      nowMs
+    }) as TeacherStatusKey;
+    return { ...c, grade: grade ?? null, statusKey };
+  });
+
+  const submitted = withStatus.filter((c) => conversationHasActivity({ hasGrade: c.grade !== null, hasSubmission: hasSubmission.has(c.id) || (c.submissions?.[0]?.count ?? 0) > 0, hasStudentMessage: chatActive.has(c.id) }));
 
   return (
     <>
@@ -99,59 +127,43 @@ export default async function TeacherAssignmentPage({ params }: { params: Promis
 
         <h2 className="mb-2.5 flex items-center gap-2 font-bold">
           <GraduationCap className="size-4 text-primary" />
-          الطلاب الذين سلموا
-          <span className="text-sm font-normal text-muted-foreground">({submitted.length})</span>
+          الطلاب
+          <span className="text-sm font-normal text-muted-foreground">
+            ({withStatus.length}) · سلموا {submitted.length}
+          </span>
         </h2>
 
         <div className="grid gap-2">
-          {submitted.map((c) => {
-            const isRevision = c.needs_revision && c.status !== "closed";
-            const isClosed = c.status === "closed";
-            const grade = gradeOf(c);
+          {withStatus.map((c) => {
+            const { Icon, cls } = statusVisual(c.statusKey);
             return (
               <Link
                 key={c.id}
                 href={`/teacher/conversations/${c.id}`}
                 className="flex items-center gap-3.5 rounded-[var(--radius-lg)] border border-border/70 bg-card p-4 shadow-card transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-raise active:translate-y-0"
               >
-                <span
-                  className={`flex size-10 shrink-0 items-center justify-center rounded-xl ${
-                    isRevision ? "bg-warning/15 text-warning" : isClosed ? "bg-success/12 text-success" : "bg-primary/10 text-primary"
-                  }`}
-                >
-                  {isRevision ? (
-                    <RefreshCw className="size-4" />
-                  ) : isClosed ? (
-                    <CheckCircle2 className="size-4" />
-                  ) : (
-                    <Clock3 className="size-4" />
-                  )}
+                <span className={`flex size-10 shrink-0 items-center justify-center rounded-xl ${cls}`}>
+                  <Icon className="size-4" />
                 </span>
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-base font-bold">{c.student?.full_name ?? "طالب"}</div>
-                  <div className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <span>الكود: {c.student?.code ?? ""}</span>
-                    <Badge variant={isRevision ? "warning" : isClosed ? "secondary" : "outline"}>
-                      {isRevision ? "مراجعة" : isClosed ? "مكتمل" : "قيد المراجعة"}
-                    </Badge>
-                  </div>
+                  <div className="mt-0.5 text-xs text-muted-foreground">الكود: {c.student?.code ?? ""}</div>
                 </div>
                 <div className="flex shrink-0 flex-col items-end gap-1">
-                  {grade !== null ? (
+                  {c.grade !== null ? (
                     <Badge className="bg-success/10 text-success">
-                      {grade} / {maxGrade}
+                      {c.grade} / {maxGrade}
                     </Badge>
-                  ) : (
-                    <Badge variant="outline">بانتظار التقييم</Badge>
-                  )}
+                  ) : null}
+                  <StatusPill statusKey={c.statusKey} />
                   <ChevronUp className="size-4 rotate-180 shrink-0 text-muted-foreground" />
                 </div>
               </Link>
             );
           })}
-          {submitted.length === 0 ? (
+          {withStatus.length === 0 ? (
             <p className="rounded-xl border border-dashed border-border bg-card/50 p-8 text-center text-sm text-muted-foreground">
-              لم يسلّم أي طالب هذا الواجب بعد.
+              لا يوجد طلاب مرتبطون بهذا الواجب بعد.
             </p>
           ) : null}
         </div>

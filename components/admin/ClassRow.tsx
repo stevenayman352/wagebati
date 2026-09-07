@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Download, Trash2 } from "lucide-react";
 import { useActionState } from "react";
 import { deleteClassAction } from "@/app/actions/admin";
+import type { ActionState } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 type ClassRowProps = {
@@ -18,7 +19,7 @@ type ClassRowProps = {
 
 export function ClassRow({ id, name, gradeLabel, students, teachers }: ClassRowProps) {
   const [deleteState, requestDelete, isDeleting] = useActionState(
-    async (prevState: any, formData: FormData) => {
+    async (prevState: ActionState, formData: FormData) => {
       return await deleteClassAction(prevState, formData);
     },
     { ok: false, message: "" }

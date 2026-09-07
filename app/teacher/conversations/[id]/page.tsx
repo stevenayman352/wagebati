@@ -6,13 +6,14 @@ import { ConfirmClose } from "@/components/confirm-close";
 import { ReopenConversation } from "@/components/reopen-conversation";
 import { GradeAutosave } from "@/components/grade-autosave";
 import { LiveGradeRefresh } from "@/components/live-grade-refresh";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { AppNav } from "@/components/app-nav";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { formatDueDate } from "@/components/due-date-card";
 import { ArrowLeft, CalendarDays, UserRound } from "lucide-react";
+import { computeAssignmentStatus, type TeacherStatusKey } from "@/lib/assignment-status";
+import { StatusPill } from "@/components/status-chip";
 
 export default async function TeacherConversationPage({ params }: { params: Promise<{ id: string }> }) {
   const profile = await requireRole(["teacher", "admin"]);
@@ -22,7 +23,7 @@ export default async function TeacherConversationPage({ params }: { params: Prom
   const { data: conversation } = await supabase
     .from("conversations")
     .select(
-      "id, status, needs_revision, closed_at, grades(grade), student:profiles!conversations_student_id_fkey(full_name, code), assignment:assignments!inner(title, due_at, max_grade)"
+      "id, status, needs_revision, closed_by, closed_at, grades(grade), submissions(count), student:profiles!conversations_student_id_fkey(full_name, code), assignment:assignments!inner(title, due_at, max_grade)"
     )
     .eq("id", id)
     .single();
@@ -32,8 +33,10 @@ export default async function TeacherConversationPage({ params }: { params: Prom
     id: string;
     status: string;
     needs_revision: boolean;
+    closed_by: string | null;
     closed_at: string | null;
     grades?: { grade: number } | null;
+    submissions?: { count: number }[] | null;
     student?: { full_name: string; code: string } | null;
     assignment?: { title: string; due_at: string | null; max_grade: number } | null;
   };
@@ -62,6 +65,20 @@ export default async function TeacherConversationPage({ params }: { params: Prom
   const maxGrade = conv.assignment?.max_grade ?? 20;
   const dueAt = conv.assignment?.due_at ?? null;
 
+  // eslint-disable-next-line react-hooks/purity
+  const nowMs = Date.now();
+  const statusKey = computeAssignmentStatus({
+    role: "teacher",
+    status: conv.status,
+    needsRevision: conv.needs_revision,
+    closedBy: conv.closed_by,
+    hasGrade: grade !== null,
+    hasSubmission: (conv.submissions?.[0]?.count ?? 0) > 0,
+    hasStudentMessage: messages.some((m) => m.sender_role === "student"),
+    dueAt,
+    nowMs
+  }) as TeacherStatusKey;
+
   return (
     <>
       <LiveGradeRefresh conversationId={id} />
@@ -75,7 +92,7 @@ export default async function TeacherConversationPage({ params }: { params: Prom
               </Link>
             </Button>
             <div className="min-w-0 flex-1">
-              <h1 className="truncate text-xl font-extrabold leading-snug md:text-2xl">{conv.assignment?.title}</h1>
+              <h1 className="line-clamp-2 break-words text-xl font-extrabold leading-snug md:text-2xl">{conv.assignment?.title}</h1>
             </div>
           </div>
 
@@ -90,8 +107,7 @@ export default async function TeacherConversationPage({ params }: { params: Prom
               <CalendarDays className="size-3.5" />
               {formatDueDate(dueAt)}
             </span>
-            {conv.needs_revision && !closed ? <Badge variant="warning">بانتظار مراجعة الطالب</Badge> : null}
-            {closed ? <Badge variant="success">مكتمل</Badge> : <Badge>قيد المراجعة</Badge>}
+            <StatusPill statusKey={statusKey} />
             <GradeAutosave conversationId={id} maxGrade={maxGrade} initialGrade={grade} />
             {closed ? (
               <ReopenConversation conversationId={id} />

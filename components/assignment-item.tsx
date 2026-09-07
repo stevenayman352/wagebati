@@ -1,5 +1,7 @@
 import Link from "next/link";
-import { Clock3, CheckCircle2, FileText, XCircle } from "lucide-react";
+import { FileText } from "lucide-react";
+import type { StudentStatusKey } from "@/lib/assignment-status";
+import { StatusPill } from "@/components/status-chip";
 import { cn } from "@/lib/utils";
 
 type Row = {
@@ -18,25 +20,17 @@ type Row = {
   } | null;
 };
 
-export function AssignmentItem({ href, row, accent, state }: { href: string; row: Row; accent: string; state: "completed" | "overdue" | "underReview" }) {
-  let statusLabel: string;
-  let statusIcon: typeof Clock3;
-  let chipCls: string;
-  if (state === "completed") {
-    statusLabel = "مكتمل";
-    statusIcon = CheckCircle2;
-    chipCls = "bg-success/12 text-success";
-  } else if (state === "overdue") {
-    statusLabel = "فات الموعد";
-    statusIcon = XCircle;
-    chipCls = "bg-destructive/10 text-destructive";
-  } else {
-    statusLabel = "قيد المراجعة";
-    statusIcon = Clock3;
-    chipCls = "bg-muted text-muted-foreground";
-  }
-  const StatusIcon = statusIcon;
-
+export function AssignmentItem({
+  href,
+  row,
+  accent,
+  statusKey
+}: {
+  href: string;
+  row: Row;
+  accent: string;
+  statusKey: StudentStatusKey;
+}) {
   return (
     <Link
       href={href}
@@ -58,10 +52,7 @@ export function AssignmentItem({ href, row, accent, state }: { href: string; row
         </div>
       </div>
       <div className="flex shrink-0 flex-col items-end gap-1.5">
-        <span className={cn("inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[0.7rem] font-semibold", chipCls)}>
-          <StatusIcon className="size-3.5" />
-          {statusLabel}
-        </span>
+        <StatusPill statusKey={statusKey} />
       </div>
     </Link>
   );

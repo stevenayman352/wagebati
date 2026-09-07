@@ -7,6 +7,7 @@ import { AppNav } from "@/components/app-nav";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ArrowLeft, ClipboardList, FileText, ChevronUp } from "lucide-react";
+import { fetchStudentChatActivity } from "@/lib/assignment-activity";
 
 type AssignmentRow = {
   id: string;
@@ -19,7 +20,9 @@ type AssignmentRow = {
 };
 
 type ConversationElement = {
+  id: string;
   status: string;
+  closed_by: string | null;
   grades?: { grade: number } | null;
   submissions?: { count: number }[] | null;
 };
@@ -37,7 +40,7 @@ export default async function TeacherAssignmentsPage() {
   let assignmentQuery = supabase
     .from("assignments")
     .select(
-      "id, title, due_at, max_grade, status, classes!inner(name), conversations(id, status, grades(grade), submissions(count))"
+      "id, title, due_at, max_grade, status, classes!inner(name), conversations(id, status, closed_by, grades(grade), submissions(count))"
     )
     .order("created_at", { ascending: false });
   if (classIds)
@@ -47,11 +50,13 @@ export default async function TeacherAssignmentsPage() {
 
   const rows = (raw ?? []) as unknown as AssignmentRow[];
 
-  const hasSubmitted = (c: ConversationElement) => {
-    const subs = c.submissions as { count?: number }[] | null | undefined;
-    const subCount = Array.isArray(subs) ? (subs[0]?.count ?? 0) : 0;
+  const allConversationIds = rows.flatMap((a) => (a.conversations ?? []).map((c) => c.id));
+  const chatActive = await fetchStudentChatActivity(supabase, allConversationIds);
+
+  const hasActivity = (c: ConversationElement) => {
+    const subCount = Array.isArray(c.submissions) ? (c.submissions[0]?.count ?? 0) : 0;
     const graded = c.grades?.grade !== undefined && c.grades?.grade !== null;
-    return c.status === "closed" || graded || subCount > 0;
+    return graded || subCount > 0 || chatActive.has(c.id);
   };
 
   const formatDue = (due: string | null) => {
@@ -82,7 +87,9 @@ export default async function TeacherAssignmentsPage() {
 
         <div className="grid gap-2.5">
           {rows.map((a) => {
-            const submittedCount = (a.conversations ?? []).filter(hasSubmitted).length;
+            const convs = a.conversations ?? [];
+            const submittedCount = convs.filter(hasActivity).length;
+            const notSubmittedCount = convs.length - submittedCount;
             const isDraft = a.status === "draft";
             return (
               <Link
@@ -104,8 +111,15 @@ export default async function TeacherAssignmentsPage() {
                     </div>
                     <div className="text-xs text-muted-foreground">الدرجة: {a.max_grade} من {a.max_grade}</div>
                     <div className="text-xs text-muted-foreground">التسليم: {formatDue(a.due_at)}</div>
-                    <div className="inline-flex items-center gap-1 rounded-full bg-success/10 px-2.5 py-1 text-xs font-semibold text-success">
-                      {submittedCount} طالب سلموا
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <div className="inline-flex items-center gap-1 rounded-full bg-success/10 px-2.5 py-1 text-xs font-semibold text-success">
+                        {submittedCount} طالب سلموا
+                      </div>
+                      {notSubmittedCount > 0 ? (
+                        <div className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 text-xs font-semibold text-muted-foreground">
+                          {notSubmittedCount} لم يسلموا
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                   <ChevronUp className="mt-1 size-4 rotate-180 shrink-0 text-muted-foreground" />

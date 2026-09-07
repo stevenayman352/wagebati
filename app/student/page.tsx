@@ -7,12 +7,20 @@ import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { PushEnabler } from "@/components/push-enabler";
 import { NotificationGate } from "@/components/notification-gate";
+import { fetchStudentChatActivity } from "@/lib/assignment-activity";
+import {
+  computeAssignmentStatus,
+  STATUS_LABEL,
+  STUDENT_STATUSES,
+  type StudentStatusKey
+} from "@/lib/assignment-status";
 import { Home, Mail, Hash } from "lucide-react";
 
 type Row = {
   id: string;
   status: string;
   needs_revision: boolean;
+  closed_by: string | null;
   closed_at: string | null;
   grades?: { grade: number } | null;
   submissions?: { count: number }[] | null;
@@ -24,6 +32,24 @@ type Row = {
     classes?: { name?: string } | null;
   } | null;
 };
+
+const GROUP_ACCENT: Record<StudentStatusKey, string> = {
+  not_submitted: "text-muted-foreground bg-muted border-border",
+  under_review: "text-primary bg-primary/10 border-primary/20",
+  submitted: "text-success bg-success/12 border-success/20",
+  missed: "text-destructive bg-destructive/10 border-destructive/20",
+  needs_revision: "text-warning-foreground bg-warning/15 border-warning/25",
+  completed: "text-foreground/90 bg-secondary border-foreground/20"
+};
+
+const STATUS_TITLES = {
+  not_submitted: STATUS_LABEL.not_submitted,
+  under_review: STATUS_LABEL.under_review,
+  submitted: STATUS_LABEL.submitted,
+  missed: STATUS_LABEL.missed,
+  needs_revision: STATUS_LABEL.needs_revision,
+  completed: STATUS_LABEL.completed
+} as const;
 
 export default async function StudentPage({
   searchParams
@@ -38,7 +64,7 @@ export default async function StudentPage({
     supabase
       .from("conversations")
       .select(
-        "id, status, needs_revision, closed_at, grades(grade), submissions(count), assignment:assignments!inner(title, due_at, max_grade, status, classes!inner(name))"
+        "id, status, needs_revision, closed_by, closed_at, grades(grade), submissions(count), assignment:assignments!inner(title, due_at, max_grade, status, classes!inner(name))"
       )
       .eq("student_id", profile.id)
       .order("created_at", { ascending: false }),
@@ -87,70 +113,46 @@ export default async function StudentPage({
     );
   }
 
+  const conversationIds = rows.map((r) => r.id);
+  const chatActive = await fetchStudentChatActivity(supabase, conversationIds);
+
   // eslint-disable-next-line react-hooks/purity
   const nowMs = Date.now();
-  const hasSub = (r: Row) => (r.submissions?.[0]?.count ?? 0) > 0;
-  const isGraded = (r: Row) => r.grades?.grade !== undefined && r.grades?.grade !== null;
-  const duePassed = (r: Row) => {
-    const due = r.assignment?.due_at ? new Date(r.assignment.due_at).getTime() : null;
-    return due !== null && due < nowMs;
-  };
-  const needsRevision = rows.filter((r) => r.status === "active" && r.needs_revision);
-  const payable = (r: Row) => r.status !== "closed" && !r.needs_revision;
-  const isOverdue = (r: Row) => !isGraded(r) && duePassed(r);
-  const isPending = (r: Row) => !isGraded(r) && !duePassed(r) && !hasSub(r);
-  const overdueRows = rows.filter((r) => payable(r) && isOverdue(r));
-  const pending = rows.filter((r) => payable(r) && isPending(r));
-  const underReview = rows.filter((r) => payable(r) && !isOverdue(r) && !isPending(r));
-  const completed = rows.filter((r) => r.status === "closed");
+  const statusOf = new Map<string, StudentStatusKey>();
+  for (const r of rows) {
+    const grade = r.grades?.grade;
+    statusOf.set(
+      r.id,
+      computeAssignmentStatus({
+        role: "student",
+        status: r.status,
+        needsRevision: r.needs_revision,
+        closedBy: r.closed_by,
+        hasGrade: grade !== undefined && grade !== null,
+        hasSubmission: (r.submissions?.[0]?.count ?? 0) > 0,
+        hasStudentMessage: chatActive.has(r.id),
+        dueAt: r.assignment?.due_at ?? null,
+        nowMs
+      }) as StudentStatusKey
+    );
+  }
+
+  const groups: {
+    key: StudentStatusKey;
+    rows: Row[];
+    accent: string;
+  }[] = STUDENT_STATUSES.map((key) => ({
+    key,
+    rows: rows.filter((r) => statusOf.get(r.id) === key),
+    accent: GROUP_ACCENT[key]
+  }));
+
+  const actionables = rows.filter((r) => {
+    const k = statusOf.get(r.id);
+    return k === "not_submitted" || k === "under_review" || k === "needs_revision";
+  }).length;
 
   const firstName = (profile.full_name ?? "").trim().split(/\s+/).slice(0, 2).join(" ");
-
-  const groups: { key: string; title: string; empty: string; rows: Row[]; accent: string; state: "completed" | "overdue" | "underReview" }[] = [
-    {
-      key: "revision",
-      title: "يحتاج تعديل",
-      empty: "لا توجد واجبات تحتاج تعديل 🎉",
-      rows: needsRevision,
-      accent: "text-warning bg-warning/12 border-warning/25",
-      state: "underReview"
-    },
-    {
-      key: "overdue",
-      title: "فات موعده",
-      empty: "لا توجد واجبات متأخرة",
-      rows: overdueRows,
-      accent: "text-destructive bg-destructive/10 border-destructive/20",
-      state: "overdue"
-    },
-    {
-      key: "pending",
-      title: "بانتظار الإرسال",
-      empty: "لا توجد واجبات بانتظار الإرسال",
-      rows: pending,
-      accent: "text-primary bg-primary/10 border-primary/20",
-      state: "underReview"
-    },
-    {
-      key: "underReview",
-      title: "قيد المراجعة",
-      empty: "لا توجد واجبات قيد المراجعة",
-      rows: underReview,
-      accent: "text-muted-foreground bg-muted border-border",
-      state: "underReview"
-    },
-    {
-      key: "completed",
-      title: "مكتملة",
-      empty: "لا توجد واجبات مكتملة بعد",
-      rows: completed,
-      accent: "text-success bg-success/12 border-success/20",
-      state: "completed"
-    }
-  ];
-
-  const totalActionable =
-    needsRevision.length + overdueRows.length + pending.length + underReview.length;
 
   return (
     <NotificationGate>
@@ -163,7 +165,7 @@ export default async function StudentPage({
                 {profile.full_name?.charAt(0) ?? "و"}
               </div>
               <div>
-                <h1 className="font-amiri text-2xl font-bold leading-tight">أهلًا {firstName} </h1>
+                <h1 className="font-amiri text-2xl font-bold leading-tight">أهلًا {firstName}</h1>
                 <p className="text-sm text-muted-foreground">احفظ وسمع كوس يا بطل</p>
               </div>
             </div>
@@ -180,9 +182,9 @@ export default async function StudentPage({
             <div aria-hidden className="pointer-events-none absolute -end-10 -bottom-14 size-48 rounded-full bg-cyan/20 blur-2xl" />
             <div className="relative">
               <p className="text-lg font-extrabold leading-snug">
-                {totalActionable === 0
-                  ? "كل واجباتك تمام ، برافو "
-                  : `عندك ${totalActionable} واجب محتاج منك شغل`}
+                {actionables === 0
+                  ? "كل واجباتك تمام ، برافو"
+                  : `عندك ${actionables} واجب محتاج منك شغل`}
               </p>
               <p className="mt-0.5 text-xs text-primary-foreground/80">
                 اضغط على الواجب للدخول عليه وتصليح المطلوب
@@ -194,7 +196,7 @@ export default async function StudentPage({
                     href={`#${g.key}`}
                     className="flex items-center justify-between gap-2 rounded-xl bg-white/10 px-3 py-2.5 ring-1 ring-white/15 backdrop-blur-sm transition-colors hover:bg-white/20"
                   >
-                    <span className="text-sm font-semibold">{g.title}</span>
+                    <span className="text-sm font-semibold">{STATUS_TITLES[g.key]}</span>
                     <span className="inline-flex min-w-6 items-center justify-center rounded-full bg-white px-1.5 py-0.5 text-xs font-bold text-primary">
                       {g.rows.length}
                     </span>
@@ -210,12 +212,12 @@ export default async function StudentPage({
               <section key={g.key} id={g.key} className="mb-6 scroll-mt-4">
                 <div className="mb-2.5 flex items-center gap-2">
                   <span className={`size-2 rounded-full ${g.accent.split(" ")[0]}`} style={{ background: "currentColor" }} />
-                  <h2 className="text-[var(--text-h2)] font-bold">{g.title}</h2>
+                  <h2 className="text-[var(--text-h2)] font-bold">{STATUS_TITLES[g.key]}</h2>
                   <span className="text-sm text-muted-foreground">({g.rows.length})</span>
                 </div>
                 <div className="grid gap-2.5">
                   {g.rows.map((r) => (
-                    <AssignmentItem key={r.id} href={`/student/assignments/${r.id}`} row={r} accent={g.accent} state={g.state} />
+                    <AssignmentItem key={r.id} href={`/student/assignments/${r.id}`} row={r} accent={g.accent} statusKey={g.key} />
                   ))}
                 </div>
               </section>

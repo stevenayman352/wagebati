@@ -1,47 +1,41 @@
-import type { ReactNode } from "react";
 import Link from "next/link";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { PageShell } from "@/components/page-shell";
 import { AppNav } from "@/components/app-nav";
-
-import { MessagesSquare, ArrowLeft, ChevronUp, RefreshCw } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { fetchStudentChatActivity } from "@/lib/assignment-activity";
+import {
+  computeAssignmentStatus,
+  isTeacherStatusKey,
+  STATUS_LABEL,
+  TEACHER_STATUSES,
+  type TeacherStatusKey
+} from "@/lib/assignment-status";
+import { ConversationList, type ConversationSection } from "@/components/conversation-list";
 
-function fmt(value: string | null) {
-  if (!value) return "";
-  return new Date(value).toLocaleString("ar", { dateStyle: "short", timeStyle: "short" });
-}
-
-type Filter = "all" | "review" | "revision" | "notsubmitted" | "recent";
-
-const FILTERS: { key: Filter; label: string }[] = [
+const PILLS: { key: TeacherStatusKey | "all"; label: string }[] = [
   { key: "all", label: "الكل" },
-  { key: "review", label: "قيد المراجعة" },
-  { key: "revision", label: "مطلوب تعديل" },
-  { key: "notsubmitted", label: "لم يتم التسليم" },
-  { key: "recent", label: "تم التسليم" }
+  ...TEACHER_STATUSES.map((key) => ({ key, label: STATUS_LABEL[key] }))
 ];
 
 export default async function TeacherConversationsPage({
   searchParams
 }: {
-  searchParams: Promise<{ assignment?: string; filter?: string }>;
+  searchParams: Promise<{ assignment?: string; status?: string }>;
 }) {
   const profile = await requireRole(["teacher", "admin"]);
-  const { assignment, filter } = await searchParams;
-  const activeFilter: Filter =
-    filter === "review" || filter === "revision" || filter === "notsubmitted" || filter === "recent"
-      ? filter
-      : "all";
+  const { assignment, status } = await searchParams;
+  const activeFilter: TeacherStatusKey | "all" =
+    status !== undefined && isTeacherStatusKey(status) ? status : "all";
   const supabase = await createSupabaseServerClient();
 
   let query = supabase
     .from("conversations")
     .select(
-      "id, status, needs_revision, last_message_at, student:profiles!conversations_student_id_fkey(full_name, code), assignment:assignments!inner(title, id, max_grade, due_at, classes!inner(name, id))"
+      "id, status, needs_revision, closed_by, last_message_at, student:profiles!conversations_student_id_fkey(full_name, code), assignment:assignments!inner(title, id, due_at, classes!inner(name, id))"
     )
     .order("last_message_at", { ascending: false });
 
@@ -71,49 +65,55 @@ export default async function TeacherConversationsPage({
     id: string;
     status: string;
     needs_revision: boolean;
+    closed_by: string | null;
     last_message_at: string | null;
     student?: { full_name: string; code: string } | null;
     assignment?: {
       title: string;
-      id: string;
-      max_grade: number;
       due_at: string | null;
       classes?: { name: string; id: string } | null;
     } | null;
   }[];
 
   // eslint-disable-next-line react-hooks/purity
-  const cutoffMs = Date.now() - 7 * 86400000;
+  const nowMs = Date.now();
   const conversationIds = raw.map((c) => c.id);
 
-  const [subsRes, gradesRes] = await Promise.all([
+  const [subsRes, gradesRes, chatActive] = await Promise.all([
     conversationIds.length
       ? supabase
           .from("submissions")
-          .select("conversation_id, submitted_at")
+          .select("conversation_id")
           .in("conversation_id", conversationIds)
       : Promise.resolve({ data: [] }),
     conversationIds.length
       ? supabase.from("grades").select("conversation_id").in("conversation_id", conversationIds)
-      : Promise.resolve({ data: [] })
+      : Promise.resolve({ data: [] }),
+    fetchStudentChatActivity(supabase, conversationIds)
   ]);
 
-  const recentlySubmitted = new Set<string>();
-  const anySubmitted = new Set<string>();
-  for (const s of subsRes.data ?? []) {
-    anySubmitted.add(s.conversation_id as string);
-    if (new Date(s.submitted_at).getTime() >= cutoffMs) recentlySubmitted.add(s.conversation_id as string);
-  }
+  const anySubmitted = new Set((subsRes.data ?? []).map((s) => s.conversation_id as string));
   const graded = new Set((gradesRes.data ?? []).map((g) => g.conversation_id as string));
 
-  const filtered = raw.filter((c) => {
-    if (activeFilter === "review")
-      return c.status === "active" && !c.needs_revision && (anySubmitted.has(c.id) || graded.has(c.id));
-    if (activeFilter === "revision") return c.needs_revision && c.status !== "closed";
-    if (activeFilter === "notsubmitted") return c.status === "active" && !anySubmitted.has(c.id) && !graded.has(c.id);
-    if (activeFilter === "recent") return recentlySubmitted.has(c.id);
-    return true;
-  });
+  const statuses = new Map<string, TeacherStatusKey>();
+  for (const c of raw) {
+    statuses.set(
+      c.id,
+      computeAssignmentStatus({
+        role: "teacher",
+        status: c.status,
+        needsRevision: c.needs_revision,
+        closedBy: c.closed_by,
+        hasGrade: graded.has(c.id),
+        hasSubmission: anySubmitted.has(c.id),
+        hasStudentMessage: chatActive.has(c.id),
+        dueAt: c.assignment?.due_at ?? null,
+        nowMs
+      }) as TeacherStatusKey
+    );
+  }
+
+  const filtered = raw.filter((c) => activeFilter === "all" || statuses.get(c.id) === activeFilter);
 
   const grouped = new Map<string, typeof filtered>();
   for (const c of filtered) {
@@ -122,18 +122,26 @@ export default async function TeacherConversationsPage({
     arr.push(c);
     grouped.set(key, arr);
   }
-  const groups = Array.from(grouped.entries()).sort((a, b) => a[0].localeCompare(b[0], "ar"));
+  const sections: ConversationSection[] = Array.from(grouped.entries())
+    .sort((a, b) => a[0].localeCompare(b[0], "ar"))
+    .map(([name, rows]) => ({
+      name,
+      rows: rows.map((c) => ({
+        id: c.id,
+        href: `/teacher/conversations/${c.id}`,
+        title: c.assignment?.title ?? "",
+        name: c.student?.full_name ?? null,
+        code: c.student?.code ?? null,
+        statusKey: statuses.get(c.id)!,
+        unread: unread.get(c.id) ?? 0,
+        lastAt: c.last_message_at
+      }))
+    }));
 
   const emptyText =
-    activeFilter === "review"
-      ? "لا توجد واجبات في انتظار التقييم. أحسنت! 🎉"
-      : activeFilter === "revision"
-        ? "لا توجد واجبات تحتاج تعديل. أحسنت! 🎉"
-        : activeFilter === "notsubmitted"
-          ? "لا توجد واجبات دون تسليم. أحسنت! 🎉"
-          : activeFilter === "recent"
-            ? "لا توجد تسليمات خلال آخر 7 أيام."
-            : "لا توجد محادثات بعد.";
+    activeFilter === "all"
+      ? "لا توجد محادثات بعد."
+      : `لا توجد واجبات بحالة «${STATUS_LABEL[activeFilter]}».`;
 
   return (
     <>
@@ -142,7 +150,7 @@ export default async function TeacherConversationsPage({
           <div>
             <h1 className="text-[var(--text-h1)] font-extrabold">المحادثات</h1>
             <p className="mt-0.5 text-sm text-muted-foreground">
-              {FILTERS.find((f) => f.key === activeFilter)?.label}
+              {PILLS.find((p) => p.key === activeFilter)?.label}
             </p>
           </div>
           <div className="flex items-center gap-1.5">
@@ -157,90 +165,23 @@ export default async function TeacherConversationsPage({
 
         {/* Filter pills */}
         <div className="no-scrollbar -mx-4 mb-5 flex gap-2 overflow-x-auto px-4 pb-1 md:mx-0 md:flex-wrap md:px-0">
-          {FILTERS.map((f) => (
+          {PILLS.map((p) => (
             <Link
-              key={f.key}
-              href={`/teacher/conversations${f.key === "all" ? "" : `?filter=${f.key}`}`}
+              key={p.key}
+              href={`/teacher/conversations${p.key === "all" ? "" : `?status=${p.key}`}`}
               className={cn(
                 "inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-sm font-medium transition-colors",
-                activeFilter === f.key
+                activeFilter === p.key
                   ? "border-primary bg-primary text-primary-foreground"
                   : "border-border bg-card text-muted-foreground hover:border-primary/40 hover:text-foreground"
               )}
             >
-              {f.label}
+              {p.label}
             </Link>
           ))}
         </div>
 
-        <div className="grid gap-4">
-          {groups.length === 0 ? (
-            <div className="flex flex-col items-center gap-2 rounded-[var(--radius-lg)] border border-dashed border-border bg-card/50 p-10 text-center">
-              <MessagesSquare className="size-9 text-primary/30" />
-              <p className="text-sm text-muted-foreground">{emptyText}</p>
-            </div>
-          ) : (
-            groups.map(([className, rows]) => (
-              <section key={className}>
-                <div className="mb-2.5 flex items-center gap-2">
-                  <span className="size-2 rounded-full bg-primary" />
-                  <h2 className="text-[var(--text-h3)] font-bold">{className}</h2>
-                  <span className="text-sm text-muted-foreground">({rows.length})</span>
-                </div>
-                <div className="grid gap-2">
-                  {rows.map((c) => {
-                    const isRevision = c.needs_revision && c.status !== "closed";
-                    const unreadCount = unread.get(c.id) ?? 0;
-                    let StatusBadge: ReactNode =
-                      c.status === "closed" ? (
-                        <Badge variant="secondary">مكتمل</Badge>
-                      ) : (
-                        <Badge variant="success">قيد المراجعة</Badge>
-                      );
-                    if (isRevision)
-                      StatusBadge = (
-                        <Badge variant="warning">
-                          <RefreshCw className="size-3" /> مراجعة
-                        </Badge>
-                      );
-                    return (
-                      <Link
-                        key={c.id}
-                        href={`/teacher/conversations/${c.id}`}
-                        className="group flex items-center gap-3.5 rounded-[var(--radius-lg)] border border-border/70 bg-card p-4 shadow-card transition-all hover:shadow-raise"
-                      >
-                        <span
-                          className={cn(
-                            "flex size-11 shrink-0 items-center justify-center rounded-xl",
-                            isRevision ? "bg-warning/15 text-warning" : "bg-primary/10 text-primary"
-                          )}
-                        >
-                          <MessagesSquare className="size-5" />
-                        </span>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
-                            <span className="truncate text-[0.95rem] font-bold">{c.assignment?.title}</span>
-                            {unreadCount ? (
-                              <Badge className="rounded-full px-1.5">{unreadCount} جديد</Badge>
-                            ) : null}
-                          </div>
-                          <div className="mt-0.5 truncate text-sm text-muted-foreground">
-                            {c.student ? `${c.student.full_name} (${c.student.code})` : ""}
-                          </div>
-                        </div>
-                        <div className="flex shrink-0 flex-col items-end gap-1.5">
-                          {StatusBadge}
-                          <span className="text-[0.7rem] text-muted-foreground">{fmt(c.last_message_at)}</span>
-                        </div>
-                        <ChevronUp className="size-4 rotate-180 shrink-0 text-muted-foreground" />
-                      </Link>
-                    );
-                  })}
-                </div>
-              </section>
-            ))
-          )}
-        </div>
+        <ConversationList sections={sections} emptyText={emptyText} />
       </PageShell>
       <AppNav role="teacher" />
     </>

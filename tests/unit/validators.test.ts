@@ -14,12 +14,12 @@ import {
 const UUID = "00000000-0000-0000-0000-000000000001";
 
 describe("videoMediaSchema", () => {
-  it("accepts MP4 up to 250MB", () => {
+  it("accepts MP4 up to 5GB", () => {
     const res = videoMediaSchema.safeParse({
       path: "v/a.mp4",
       name: "a.mp4",
       mime: "video/mp4",
-      size: 250 * 1024 * 1024
+      size: 5 * 1024 * 1024 * 1024
     });
     expect(res.success).toBe(true);
   });
@@ -44,12 +44,12 @@ describe("videoMediaSchema", () => {
     expect(res.success).toBe(false);
   });
 
-  it("rejects video over 250MB", () => {
+  it("rejects video over 5GB", () => {
     const res = videoMediaSchema.safeParse({
       path: "v/big.mp4",
       name: "big.mp4",
       mime: "video/mp4",
-      size: 250 * 1024 * 1024 + 1
+      size: 5 * 1024 * 1024 * 1024 + 1
     });
     expect(res.success).toBe(false);
   });
@@ -321,7 +321,7 @@ describe("submissionSchema media presence", () => {
     const res = submissionSchema.safeParse({
       conversationId: UUID,
       attempt: 1,
-      video: { path: "s.png", name: "s", mime: "video/mp4", size: 262144001 },
+      video: { path: "s.png", name: "s", mime: "video/mp4", size: 5 * 1024 * 1024 * 1024 + 1 },
       voice: null,
       imagesJson: "[]"
     });

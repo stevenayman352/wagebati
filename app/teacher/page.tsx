@@ -16,7 +16,14 @@ import { NotificationBell } from "@/components/notification-bell";
 import { PushEnabler } from "@/components/push-enabler";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { CheckCircle2, Plus, Users, FileText, Paperclip, Mail, Hash, ShieldCheck, ClipboardCheck } from "lucide-react";
+import { fetchStudentChatActivity } from "@/lib/assignment-activity";
+import {
+  computeAssignmentStatus,
+  STATUS_LABEL,
+  TEACHER_STATUSES,
+  type TeacherStatusKey
+} from "@/lib/assignment-status";
+import { CheckCircle2, Plus, Users, FileText, Paperclip, Mail, Hash, ShieldCheck, ClipboardCheck, Clock3, XCircle, RefreshCw } from "lucide-react";
 
 type Row = {
   id: string;
@@ -96,8 +103,7 @@ export default async function TeacherPage({
       .eq("is_read", false),
     supabase
       .from("conversations")
-      .select("id, status, needs_revision, assignment:assignments!inner(due_at, class_id)")
-      .eq("status", "active"),
+      .select("id, status, needs_revision, closed_by, assignment:assignments!inner(due_at, class_id)"),
     supabase.from("class_students").select("class_id, student_id")
   ]);
 
@@ -126,21 +132,19 @@ export default async function TeacherPage({
     .order("created_at", { ascending: false });
   if (classIds) assignmentsQuery = assignmentsQuery.in("class_id", classIds.length ? classIds : ["00000000-0000-0000-0000-000000000000"]);
 
-  // eslint-disable-next-line react-hooks/purity
-  const cutoffMs = Date.now() - 7 * 86400000;
-
-  const [classesRes, assignmentsRes, subsRes, gradesRes] = await Promise.all([
+  const [classesRes, assignmentsRes, subsRes, gradesRes, chatActive] = await Promise.all([
     classesQuery,
     assignmentsQuery,
     conversationIds.length
       ? supabase
           .from("submissions")
-          .select("conversation_id, submitted_at")
+          .select("conversation_id")
           .in("conversation_id", conversationIds)
       : Promise.resolve({ data: [] }),
     conversationIds.length
       ? supabase.from("grades").select("conversation_id").in("conversation_id", conversationIds)
-      : Promise.resolve({ data: [] })
+      : Promise.resolve({ data: [] }),
+    fetchStudentChatActivity(supabase, conversationIds)
   ]);
   const classes = classesRes.data;
 
@@ -149,28 +153,50 @@ export default async function TeacherPage({
   const drafts = rows.filter((r) => r.status === "draft");
   const published = rows.filter((r) => r.status === "published");
 
-  const recentlySubmitted = new Set<string>();
-  const submittedIds = new Set<string>();
-  for (const s of subsRes.data ?? []) {
-    submittedIds.add(s.conversation_id as string);
-    if (new Date(s.submitted_at).getTime() >= cutoffMs) recentlySubmitted.add(s.conversation_id as string);
-  }
+  const submittedIds = new Set((subsRes.data ?? []).map((s) => s.conversation_id as string));
   const gradedIds = new Set((gradesRes.data ?? []).map((g) => g.conversation_id as string));
 
-  const toReview = conversations.filter(
-    (c) => c.status === "active" && !c.needs_revision && (submittedIds.has(c.id) || gradedIds.has(c.id))
-  ).length;
-  const sentRecently = recentlySubmitted.size;
+  // eslint-disable-next-line react-hooks/purity
+  const nowMs = Date.now();
+  const statusCounts = new Map<TeacherStatusKey, number>();
+  for (const c of conversations) {
+    const a = c.assignment as unknown as { due_at: string | null } | null;
+    const key = computeAssignmentStatus({
+      role: "teacher",
+      status: c.status,
+      needsRevision: c.needs_revision,
+      closedBy: c.closed_by,
+      hasGrade: gradedIds.has(c.id),
+      hasSubmission: submittedIds.has(c.id),
+      hasStudentMessage: chatActive.has(c.id),
+      dueAt: a?.due_at ?? null,
+      nowMs
+    }) as TeacherStatusKey;
+    statusCounts.set(key, (statusCounts.get(key) ?? 0) + 1);
+  }
 
   const studentCounts = new Map<string, number>();
   for (const e of enrollRes.data ?? []) {
     studentCounts.set(e.class_id as string, (studentCounts.get(e.class_id as string) ?? 0) + 1);
   }
-
-  const metrics = [
-    { href: "/teacher/conversations?filter=review", count: toReview, label: "قيد المراجعة", icon: ClipboardCheck, tone: "text-primary bg-primary/10" },
-    { href: "/teacher/conversations?filter=recent", count: sentRecently, label: "تم التسليم (7 أيام)", icon: CheckCircle2, tone: "text-success bg-success/12" }
-  ];
+  const statusCardTone: Record<TeacherStatusKey, string> = {
+    not_submitted: "bg-muted text-muted-foreground",
+    under_review: "bg-primary/10 text-primary",
+    awaiting_grading: "bg-warning/15 text-warning-foreground",
+    overdue_not_submitted: "bg-destructive/10 text-destructive",
+    graded: "bg-success/12 text-success",
+    needs_revision: "bg-warning/15 text-warning-foreground",
+    completed: "bg-secondary text-secondary-foreground"
+  };
+  const statusCardIcon: Record<TeacherStatusKey, typeof ClipboardCheck> = {
+    not_submitted: Clock3,
+    under_review: ClipboardCheck,
+    awaiting_grading: ClipboardCheck,
+    overdue_not_submitted: XCircle,
+    graded: CheckCircle2,
+    needs_revision: RefreshCw,
+    completed: CheckCircle2
+  };
 
   return (
     <>
@@ -186,23 +212,23 @@ export default async function TeacherPage({
 
         <PushEnabler />
 
-        {/* Metrics */}
-        <section className="mb-6 grid grid-cols-2 gap-2.5 lg:grid-cols-2">
-          {metrics.map((m) => {
-            const Icon = m.icon;
+        {/* Status cards */}
+        <section className="mb-6 grid grid-cols-2 gap-2.5 md:grid-cols-3 xl:grid-cols-4">
+          {TEACHER_STATUSES.map((key) => {
+            const Icon = statusCardIcon[key];
             return (
               <Link
-                key={m.href}
-                href={m.href}
+                key={key}
+                href={`/teacher/conversations?status=${key}`}
                 className="group relative overflow-hidden rounded-2xl border border-border/70 bg-card p-4 shadow-card transition-all hover:-translate-y-0.5 hover:shadow-raise active:translate-y-0"
               >
                 <div className="flex items-center justify-between gap-2">
-                  <span className={`flex size-10 shrink-0 items-center justify-center rounded-xl transition-transform duration-200 group-hover:scale-105 ${m.tone}`}>
+                  <span className={`flex size-10 shrink-0 items-center justify-center rounded-xl transition-transform duration-200 group-hover:scale-105 ${statusCardTone[key]}`}>
                     <Icon className="size-5" />
                   </span>
-                  <span className="text-[1.7rem] font-extrabold leading-none">{m.count}</span>
+                  <span className="text-[1.7rem] font-extrabold leading-none">{statusCounts.get(key) ?? 0}</span>
                 </div>
-                <p className="mt-2.5 text-xs font-semibold text-muted-foreground">{m.label}</p>
+                <p className="mt-2.5 text-xs font-semibold text-muted-foreground">{STATUS_LABEL[key]}</p>
               </Link>
             );
           })}

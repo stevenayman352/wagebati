@@ -8,9 +8,10 @@ import { LiveGradeRefresh } from "@/components/live-grade-refresh";
 import type { ThreadMessage } from "@/components/conversation-thread";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { cn } from "@/lib/utils";
 import { formatDueDate } from "@/components/due-date-card";
-import { ArrowRight, Paperclip, ChevronDown, CheckCircle2, XCircle, Clock3, CalendarDays } from "lucide-react";
+import { computeAssignmentStatus, type StudentStatusKey } from "@/lib/assignment-status";
+import { StatusPill } from "@/components/status-chip";
+import { ArrowRight, Paperclip, ChevronDown, CalendarDays } from "lucide-react";
 
 type SubmissionImage = {
   id: string;
@@ -40,7 +41,7 @@ export default async function StudentAssignmentPage({ params }: { params: Promis
     supabase
       .from("conversations")
       .select(
-        "id, assignment_id, status, needs_revision, closed_at, grades(grade), assignment:assignments!inner(title, instructions, due_at, max_grade, status)"
+        "id, assignment_id, status, needs_revision, closed_by, closed_at, grades(grade), assignment:assignments!inner(title, instructions, due_at, max_grade, status)"
       )
       .eq("id", id)
       .eq("student_id", profile.id)
@@ -65,6 +66,7 @@ export default async function StudentAssignmentPage({ params }: { params: Promis
     assignment_id: string;
     status: string;
     needs_revision: boolean;
+    closed_by: string | null;
     closed_at: string | null;
     grades?: { grade: number } | null;
     assignment?: { title: string; instructions: string | null; due_at: string | null; max_grade: number; status: string } | null;
@@ -118,12 +120,17 @@ export default async function StudentAssignmentPage({ params }: { params: Promis
   // eslint-disable-next-line react-hooks/purity
   const nowMs = Date.now();
 
-  const homeworkState =
-    conv.status === "closed"
-      ? { label: "مكتمل", cls: "border-success/30 bg-success/10 text-success", Icon: CheckCircle2 }
-      : grade === null && conv.assignment?.due_at && nowMs > new Date(conv.assignment.due_at).getTime()
-        ? { label: "فات الموعد", cls: "border-destructive/30 bg-destructive/10 text-destructive", Icon: XCircle }
-        : { label: "قيد المراجعة", cls: "border-border/70 bg-muted/40 text-muted-foreground", Icon: Clock3 };
+  const statusKey = computeAssignmentStatus({
+    role: "student",
+    status: conv.status,
+    needsRevision: conv.needs_revision,
+    closedBy: conv.closed_by,
+    hasGrade: grade !== null,
+    hasSubmission: submissions.length > 0,
+    hasStudentMessage: threadMessages.some((m) => m.sender_role === "student"),
+    dueAt: conv.assignment?.due_at ?? null,
+    nowMs
+  }) as StudentStatusKey;
 
   const messageUrlByPath = new Map((messageUrlResults.data ?? []).map((u) => [u.path, u.signedUrl ?? null]));
   const messageSigned: Record<string, string | null> = {};
@@ -145,15 +152,12 @@ export default async function StudentAssignmentPage({ params }: { params: Promis
               </Link>
             </Button>
             <div className="min-w-0 flex-1">
-              <h1 className="truncate text-xl font-extrabold leading-snug md:text-2xl">{conv.assignment?.title}</h1>
+              <h1 className="line-clamp-2 break-words text-xl font-extrabold leading-snug md:text-2xl">{conv.assignment?.title}</h1>
             </div>
           </div>
 
           <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-2">
-            <span className={cn("inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-bold", homeworkState.cls)}>
-              <homeworkState.Icon className="size-3.5" />
-              {homeworkState.label}
-            </span>
+            <StatusPill statusKey={statusKey} />
             <span className="inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-muted/40 px-3 py-1 text-xs font-bold text-muted-foreground">
               <CalendarDays className="size-3.5" />
               {formatDueDate(conv.assignment?.due_at ?? null)}
