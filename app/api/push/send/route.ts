@@ -81,5 +81,5 @@ export async function POST(req: NextRequest) {
   if (failed > 0) {
     console.error(`[push] userId=${userId} delivered=${count} failed=${failed}`, failures);
   }
-  return Response.json({ ok: true, count, failed });
+  return Response.json({ ok: true, count, failed, details: failures.slice(0, 5) });
 }

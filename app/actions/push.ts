@@ -78,6 +78,18 @@ export async function savePushSubscriptionAction(formData: FormData): Promise<Ac
   return { ok: true, message: "" };
 }
 
+export async function getMyPushSubscriptionAction(): Promise<{ ok: boolean; endpoint?: string }> {
+  const profile = await getCurrentProfile();
+  if (!profile) return { ok: false };
+  const sb = service();
+  const { data } = await sb
+    .from("push_subscriptions")
+    .select("endpoint")
+    .eq("user_id", profile.id)
+    .maybeSingle();
+  return { ok: true, endpoint: data?.endpoint };
+}
+
 export async function deletePushSubscriptionAction(formData: FormData): Promise<ActionState> {
   const profile = await getCurrentProfile();
   if (!profile) return { ok: false, message: "غير مصرح." };

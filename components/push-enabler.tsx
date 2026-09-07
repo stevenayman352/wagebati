@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { deletePushSubscriptionAction, getVapidPublicKeyAction, savePushSubscriptionAction } from "@/app/actions/push";
+import { deletePushSubscriptionAction, getMyPushSubscriptionAction, getVapidPublicKeyAction, savePushSubscriptionAction } from "@/app/actions/push";
 
 type Status = "checking" | "unsupported" | "idle" | "granting" | "done" | "denied" | "failed" | "need-install";
 
@@ -33,31 +33,20 @@ export function PushEnabler() {
   const [status, setStatus] = useState<Status>("checking");
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let active = true;
-    (async () => {
-      if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
-        if (active) setStatus(isIOS() && !isStandalone() ? "need-install" : "unsupported");
-        return;
-      }
-      try {
-        void getVapidPublicKeyAction().catch(() => {});
-        const registration = await navigator.serviceWorker.getRegistration("/sw.js");
-        if (registration) {
-          const existing = await registration.pushManager.getSubscription();
-          if (existing && active) setStatus("done");
-          else if (active) setStatus("idle");
-        } else if (active) {
-          setStatus("idle");
-        }
-      } catch {
-        if (active) setStatus("idle");
-      }
-    })();
-    return () => {
-      active = false;
-    };
-  }, []);
+  async function repairSubscription(registration: ServiceWorkerRegistration) {
+    const existing = await registration.pushManager.getSubscription();
+    if (existing) await existing.unsubscribe().catch(() => {});
+    const permission =
+      Notification.permission === "granted" ? "granted" : await Notification.requestPermission();
+    if (permission !== "granted") throw new Error("تم رفض الإذن.");
+    const publicKey = await getVapidPublicKeyAction();
+    const keyBytes = urlBase64ToUint8Array(publicKey);
+    if (keyBytes.length !== 65 || keyBytes[0] !== 4) {
+      throw new Error("مفتاح الدفع غير صالح.");
+    }
+    const subscription = await subscribeWithRetry(registration, keyBytes.slice().buffer);
+    await persist(subscription);
+  }
 
   async function enable() {
     setStatus("granting");
@@ -67,30 +56,15 @@ export function PushEnabler() {
         setStatus("need-install");
         return;
       }
-      if (Notification.permission === "denied") {
-        setStatus("denied");
-        return;
-      }
       await navigator.serviceWorker.register("/sw.js");
       const registration = await navigator.serviceWorker.ready;
       const existing = await registration.pushManager.getSubscription();
-      if (existing) {
-        await persist(existing);
+      const saved = await getMyPushSubscriptionAction();
+      if (existing && saved.ok && saved.endpoint === existing.endpoint) {
         setStatus("done");
         return;
       }
-      const permission = await Notification.requestPermission();
-      if (permission !== "granted") {
-        setStatus("denied");
-        return;
-      }
-      const publicKey = await getVapidPublicKeyAction();
-      const keyBytes = urlBase64ToUint8Array(publicKey);
-      if (keyBytes.length !== 65 || keyBytes[0] !== 4) {
-        throw new Error("مفتاح الدفع غير صالح.");
-      }
-      const subscription = await subscribeWithRetry(registration, keyBytes.slice().buffer);
-      await persist(subscription);
+      await repairSubscription(registration);
       setStatus("done");
     } catch (err) {
       console.error(err);
@@ -149,6 +123,46 @@ export function PushEnabler() {
     }
     setStatus("idle");
   }
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
+        if (active) setStatus(isIOS() && !isStandalone() ? "need-install" : "unsupported");
+        return;
+      }
+      try {
+        void getVapidPublicKeyAction().catch(() => {});
+        const registration = await navigator.serviceWorker.getRegistration("/sw.js");
+        if (registration) {
+          const existing = await registration.pushManager.getSubscription();
+          if (!existing) {
+            if (active) setStatus("idle");
+            return;
+          }
+          const saved = await getMyPushSubscriptionAction();
+          if (saved.ok && saved.endpoint === existing.endpoint) {
+            if (active) setStatus("done");
+            return;
+          }
+          if (Notification.permission === "granted") {
+            await repairSubscription(registration);
+            if (active) setStatus("done");
+          } else if (active) {
+            setStatus("idle");
+          }
+        } else if (active) {
+          setStatus("idle");
+        }
+      } catch {
+        if (active) setStatus("idle");
+      }
+    })();
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (status === "checking") return null;
 
