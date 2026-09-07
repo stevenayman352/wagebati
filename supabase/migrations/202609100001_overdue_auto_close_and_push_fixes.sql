@@ -89,7 +89,7 @@ begin
     perform cron.schedule(
       'wajebaty-close-overdue',
       '0 * * * *',
-      $$select public.close_overdue_conversations();$$
+      $cron$select public.close_overdue_conversations();$cron$
     );
   end if;
 end;
