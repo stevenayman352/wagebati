@@ -170,11 +170,23 @@ export async function removeAttachmentAction(formData: FormData) {
 
 export async function saveGradeAction(_: ActionState, formData: FormData): Promise<ActionState> {
   const profile = await requireRole(["teacher", "admin"]);
+  const conversationId = formData.get("conversationId") as string;
+  if (!conversationId) return { ok: false, message: "معرف المحادثة مطلوب." };
+
+  const supabase = await createSupabaseServerClient();
+  const { data: conversation } = await supabase
+    .from("conversations")
+    .select("assignment_id, student_id, assignment:assignments(title, max_grade)")
+    .eq("id", conversationId)
+    .single();
+
+  if (!conversation) return { ok: false, message: "المحادثة غير موجودة." };
+
   const parsed = gradeSchema.safeParse({
-    conversationId: formData.get("conversationId"),
+    conversationId,
     grade: formData.get("grade"),
     note: "",
-    maxGrade: formData.get("maxGrade")
+    maxGrade: (conversation.assignment as any)?.[0]?.max_grade
   });
 
   if (!parsed.success) {
@@ -184,15 +196,6 @@ export async function saveGradeAction(_: ActionState, formData: FormData): Promi
       message: gradeIssues ? "الدرجة يجب ألا تتجاوز الدرجة العظمى المحددة للواجب." : "تحقق من الدرجة."
     };
   }
-
-  const supabase = await createSupabaseServerClient();
-  const { data: conversation } = await supabase
-    .from("conversations")
-    .select("assignment_id, student_id, assignment:assignments(title, max_grade)")
-    .eq("id", parsed.data.conversationId)
-    .single();
-
-  if (!conversation) return { ok: false, message: "المحادثة غير موجودة." };
 
   const { error } = await supabase.from("grades").upsert(
     {
@@ -241,11 +244,23 @@ export async function reopenConversationAction(_: ActionState, formData: FormDat
 
 export async function gradeConversationAction(_: ActionState, formData: FormData): Promise<ActionState> {
   const profile = await requireRole(["teacher", "admin"]);
+  const conversationId = formData.get("conversationId") as string;
+  if (!conversationId) return { ok: false, message: "معرف المحادثة مطلوب." };
+
+  const supabase = await createSupabaseServerClient();
+  const { data: conversation } = await supabase
+    .from("conversations")
+    .select("assignment_id, student_id, assignment:assignments(title, max_grade)")
+    .eq("id", conversationId)
+    .single();
+
+  if (!conversation) return { ok: false, message: "المحادثة غير موجودة." };
+
   const parsed = gradeSchema.safeParse({
-    conversationId: formData.get("conversationId"),
+    conversationId,
     grade: formData.get("grade"),
     note: formData.get("note"),
-    maxGrade: formData.get("maxGrade")
+    maxGrade: (conversation.assignment as any)?.[0]?.max_grade
   });
 
   if (!parsed.success) {
@@ -255,15 +270,6 @@ export async function gradeConversationAction(_: ActionState, formData: FormData
       message: gradeIssues ? "الدرجة يجب ألا تتجاوز الدرجة العظمى المحددة للواجب." : "تحقق من الدرجة والملاحظة."
     };
   }
-
-  const supabase = await createSupabaseServerClient();
-  const { data: conversation } = await supabase
-    .from("conversations")
-    .select("assignment_id, student_id, assignment:assignments(title, max_grade)")
-    .eq("id", parsed.data.conversationId)
-    .single();
-
-  if (!conversation) return { ok: false, message: "المحادثة غير موجودة." };
 
   const { error } = await supabase.from("grades").upsert(
     {
@@ -327,4 +333,14 @@ export async function closeConversationAction(_: ActionState, formData: FormData
 
   revalidatePath("/teacher");
   return { ok: true, message: "تم إنهاء المحادثة." };
+}
+
+export async function forceCloseOverdueAction(_: ActionState, formData: FormData): Promise<ActionState> {
+  await requireRole(["admin"]);
+  const admin = createSupabaseAdminClient();
+  const { data, error } = await admin.rpc("close_overdue_conversations");
+
+  if (error) return { ok: false, message: `فشل إغلاق الواجبات المتأخرة: ${error.message}` };
+
+  return { ok: true, message: `تم إغلاق ${data ?? 0} محادثة متأخرة بنجاح.` };
 }

@@ -371,3 +371,64 @@ export async function bulkDeleteAccountsAction(_: ActionState, formData: FormDat
   revalidatePath("/admin/accounts");
   return { ok: true, message: `تم حذف ${userIds.length} حساب بنجاح.` };
 }
+
+export async function deleteClassAction(_: ActionState, formData: FormData): Promise<ActionState> {
+  await requireRole(["admin"]);
+  const classId = uuidSchema.safeParse(formData.get("classId"));
+  if (!classId.success) return { ok: false, message: "معرف الصف غير صالح." };
+
+  const admin = createSupabaseAdminClient();
+
+  try {
+    const { data: assignments } = await admin
+      .from("assignments")
+      .select("id")
+      .eq("class_id", classId.data);
+
+    if (assignments && assignments.length > 0) {
+      const assignmentIds = assignments.map((a) => a.id);
+
+      const { data: attachments } = await admin
+        .from("assignment_attachments")
+        .select("storage_path")
+        .in("assignment_id", assignmentIds);
+
+      const { data: submissions } = await admin
+        .from("submissions")
+        .select("video_path")
+        .in("assignment_id", assignmentIds);
+
+      const { data: conversations } = await admin
+        .from("conversations")
+        .select("id")
+        .in("assignment_id", assignmentIds);
+
+      const convIds = conversations?.map(c => c.id) ?? [];
+      const { data: messages } = await admin
+        .from("messages")
+        .select("storage_path")
+        .in("conversation_id", convIds);
+
+      const allPaths: Record<string, string[]> = {
+        "assignment-attachments": (attachments ?? []).map((a) => a.storage_path).filter(Boolean),
+        "submissions": (submissions ?? []).map((s) => s.video_path).filter(Boolean),
+        "message-media": (messages ?? []).map((m) => m.storage_path).filter(Boolean),
+      };
+
+      for (const [bucket, paths] of Object.entries(allPaths)) {
+        if (paths.length > 0) {
+          await admin.storage.from(bucket).remove(paths);
+        }
+      }
+    }
+
+    const { error } = await admin.from("classes").delete().eq("id", classId.data);
+    if (error) throw error;
+
+    revalidatePath("/admin");
+    revalidatePath("/admin/classes");
+    return { ok: true, message: "تم حذف الصف وكافة البيانات المرتبطة به بنجاح." };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : "تعذر حذف الصف." };
+  }
+}

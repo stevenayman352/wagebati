@@ -7,14 +7,13 @@ import { resetPasswordAction } from "@/app/actions/admin";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { RefreshCw } from "lucide-react";
+import { AdminUserSelector } from "@/components/admin/AdminUserSelector";
 
 function roleLabel(role: string) {
   return role === "admin" ? "ادمن" : role === "teacher" ? "مُدرّس" : "طالب";
 }
 
 type UserRow = { id: string; full_name: string; code: string; role: string };
-
-const selectCls = "h-9 w-full rounded-lg border border-border bg-background px-2.5 text-sm";
 
 export default async function AdminResetPasswordPage() {
   const profile = await requireRole(["admin"]);
@@ -40,13 +39,7 @@ export default async function AdminResetPasswordPage() {
           <ActionForm action={resetPasswordAction} className="grid gap-3.5" submitLabel="إعادة تعيين">
             <div className="grid gap-1.5">
               <Label htmlFor="resetUserId">الحساب</Label>
-              <select id="resetUserId" name="userId" className={selectCls} required>
-                {userOptions.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.full_name} ({u.code}) - {roleLabel(u.role)}
-                  </option>
-                ))}
-              </select>
+              <AdminUserSelector users={userOptions} />
             </div>
             <div className="grid gap-1.5">
               <Label htmlFor="resetPassword">كلمة مرور جديدة</Label>

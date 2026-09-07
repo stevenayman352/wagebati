@@ -86,10 +86,10 @@ export function SplashScreen() {
           واجباتي
         </h1>
         <p
-          className="mt-1.5 text-sm font-semibold text-muted-foreground animate-slide-up"
+          className="mt-1.5 text-sm font-semibold text-muted-foreground animate-slide-up whitespace-nowrap"
           style={{ animationDelay: "220ms" }}
         >
-          جوق الحان مدرسة الشمامسة
+        
         </p>
 
         {/* Premium indeterminate progress */}

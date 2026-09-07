@@ -120,7 +120,7 @@ export async function sendVideoMessageAction(state: ActionState, formData: FormD
   if (parsed.data.mimeType !== "video/mp4" && parsed.data.mimeType !== "video/quicktime") {
     return { ok: false, message: "الفيديو يجب أن يكون MP4 أو MOV." };
   }
-  if ((parsed.data.fileSize ?? 0) > 262144000) return { ok: false, message: "الفيديو أكبر من 250MB." };
+  if ((parsed.data.fileSize ?? 0) > 5368709120) return { ok: false, message: "الفيديو أكبر من 5GB." };
 
   const ctx = await conversationAccess(parsed.data.conversationId);
   if (!ctx.ok) return { ok: false, message: ctx.error };
