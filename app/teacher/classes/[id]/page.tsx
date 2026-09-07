@@ -14,36 +14,35 @@ export default async function TeacherClassPage({ params }: { params: Promise<{ i
   const { id } = await params;
   const supabase = await createSupabaseServerClient();
 
-  const { data: klass } = await supabase
-    .from("classes")
-    .select("id, name, grade_label")
-    .eq("id", id)
-    .single();
+  const [{ data: klass }, teachersData, studentsData, assignmentsData] = await Promise.all([
+    supabase
+      .from("classes")
+      .select("id, name, grade_label")
+      .eq("id", id)
+      .single(),
+    supabase
+      .from("class_teachers")
+      .select("teacher:profiles!class_teachers_teacher_id_fkey(full_name)")
+      .eq("class_id", id),
+    supabase
+      .from("class_students")
+      .select("student_id, students:profiles!class_students_student_id_fkey(full_name, code)")
+      .eq("class_id", id),
+    supabase
+      .from("assignments")
+      .select("id, title, status, due_at, max_grade")
+      .eq("class_id", id)
+      .eq("status", "published")
+      .order("created_at", { ascending: false })
+  ]);
   if (!klass) notFound();
 
-  const { data: teachersData } = await supabase
-    .from("class_teachers")
-    .select("teacher:profiles!class_teachers_teacher_id_fkey(full_name)")
-    .eq("class_id", id);
-
-  const { data: studentsData } = await supabase
-    .from("class_students")
-    .select("student_id, students:profiles!class_students_student_id_fkey(full_name, code)")
-    .eq("class_id", id);
-
-  const { data: assignmentsData } = await supabase
-    .from("assignments")
-    .select("id, title, status, due_at, max_grade")
-    .eq("class_id", id)
-    .eq("status", "published")
-    .order("created_at", { ascending: false });
-
   const klassFull = klass as unknown as { name: string; grade_label: string };
-  const teacherNames = (teachersData ?? [])
+  const teacherNames = (teachersData.data ?? [])
     .map((t) => (t.teacher as unknown as { full_name: string } | null)?.full_name ?? "-")
     .filter((n) => n !== "-");
-  const students = (studentsData ?? []) as unknown as { student_id: string; students?: { full_name: string; code: string } | null }[];
-  const assignments = (assignmentsData ?? []) as unknown as { id: string; title: string; status: string; due_at: string | null; max_grade: number }[];
+  const students = (studentsData.data ?? []) as unknown as { student_id: string; students?: { full_name: string; code: string } | null }[];
+  const assignments = (assignmentsData.data ?? []) as unknown as { id: string; title: string; status: string; due_at: string | null; max_grade: number }[];
 
   return (
     <>

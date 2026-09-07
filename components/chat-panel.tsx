@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { ConversationThread, type ThreadMessage } from "@/components/conversation-thread";
+import { useRef, useState } from "react";
+import { ConversationThread, type ConversationThreadHandle, type ThreadMessage } from "@/components/conversation-thread";
 import { MessageComposer } from "@/components/message-composer";
 
 export function ChatPanel({
@@ -10,6 +10,7 @@ export function ChatPanel({
   signed,
   mineId,
   disabled,
+  disabledLabel,
   fill = false,
   showGrade = false,
   grade = null,
@@ -20,16 +21,19 @@ export function ChatPanel({
   signed: Record<string, string | null>;
   mineId: string;
   disabled: boolean;
+  disabledLabel?: string;
   fill?: boolean;
   showGrade?: boolean;
   grade?: number | null;
   maxGrade?: number;
 }) {
   const [reply, setReply] = useState<ThreadMessage | null>(null);
+  const threadRef = useRef<ConversationThreadHandle>(null);
 
   return (
     <>
       <ConversationThread
+        ref={threadRef}
         conversationId={conversationId}
         initial={initial}
         signed={signed}
@@ -40,7 +44,21 @@ export function ChatPanel({
         grade={grade}
         maxGrade={maxGrade}
       />
-      <MessageComposer conversationId={conversationId} disabled={disabled} replyTo={reply} onCancelReply={() => setReply(null)} fill={fill} />
+      <MessageComposer
+        conversationId={conversationId}
+        disabled={disabled}
+        disabledLabel={disabledLabel}
+        replyTo={reply}
+        onCancelReply={() => setReply(null)}
+        fill={fill}
+        onOptimistic={(msg) => {
+          threadRef.current?.addPending({
+            ...msg,
+            sender_id: mineId,
+            sender_role: msg.sender_role ?? undefined
+          });
+        }}
+      />
     </>
   );
 }

@@ -11,16 +11,19 @@ export default async function TeacherClassesPage() {
   const profile = await requireRole(["teacher", "admin"]);
   const supabase = await createSupabaseServerClient();
 
-  const { count: unreadCount } = await supabase
-    .from("notifications")
-    .select("id", { count: "exact", head: true })
-    .eq("user_id", profile.id)
-    .eq("is_read", false);
-
-  const { data: myClasses } = await supabase
-    .from("class_teachers")
-    .select("class_id")
-    .eq("teacher_id", profile.id);
+  const [{ count: unreadCount }, myClassesRes, enrollRes] = await Promise.all([
+    supabase
+      .from("notifications")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", profile.id)
+      .eq("is_read", false),
+    supabase
+      .from("class_teachers")
+      .select("class_id")
+      .eq("teacher_id", profile.id),
+    supabase.from("class_students").select("class_id, student_id")
+  ]);
+  const myClasses = myClassesRes.data;
 
   const classIds = profile.role === "admin"
     ? null
@@ -30,9 +33,8 @@ export default async function TeacherClassesPage() {
   if (classIds) classesQuery = classesQuery.in("id", classIds.length ? classIds : ["00000000-0000-0000-0000-000000000000"]);
   const { data: classes } = await classesQuery;
 
-  const { data: enrollRes } = await supabase.from("class_students").select("class_id, student_id");
   const studentCounts = new Map<string, number>();
-  for (const e of enrollRes ?? []) {
+  for (const e of enrollRes.data ?? []) {
     const cid = e.class_id as string;
     studentCounts.set(cid, (studentCounts.get(cid) ?? 0) + 1);
   }

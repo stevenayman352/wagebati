@@ -84,24 +84,39 @@ export default async function TeacherPage({
     );
   }
 
-  const { data: myClasses } = await supabase
-    .from("class_teachers")
-    .select("class_id")
-    .eq("teacher_id", profile.id);
-
-  const { count: unreadCount } = await supabase
-    .from("notifications")
-    .select("id", { count: "exact", head: true })
-    .eq("user_id", profile.id)
-    .eq("is_read", false);
+  const [{ data: myClasses }, { count: unreadCount }, convRes, enrollRes] = await Promise.all([
+    supabase
+      .from("class_teachers")
+      .select("class_id")
+      .eq("teacher_id", profile.id),
+    supabase
+      .from("notifications")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", profile.id)
+      .eq("is_read", false),
+    supabase
+      .from("conversations")
+      .select("id, status, needs_revision, assignment:assignments!inner(due_at, class_id)")
+      .eq("status", "active"),
+    supabase.from("class_students").select("class_id, student_id")
+  ]);
 
   const classIds = profile.role === "admin"
     ? null
     : (myClasses ?? []).map((r) => r.class_id as string);
 
+  const inScope = classIds
+    ? (ids: string[]) => ids.some((id) => (classIds as string[]).includes(id))
+    : () => true;
+
+  const conversations = (convRes.data ?? []).filter((c) => {
+    const a = c.assignment as unknown as { class_id?: string } | null;
+    return a?.class_id ? inScope([a.class_id]) : false;
+  });
+  const conversationIds = conversations.map((c) => c.id as string);
+
   let classesQuery = supabase.from("classes").select("id, name, grade_label").order("name");
   if (classIds) classesQuery = classesQuery.in("id", classIds.length ? classIds : ["00000000-0000-0000-0000-000000000000"]);
-  const { data: classes } = await classesQuery;
 
   let assignmentsQuery = supabase
     .from("assignments")
@@ -110,48 +125,37 @@ export default async function TeacherPage({
     )
     .order("created_at", { ascending: false });
   if (classIds) assignmentsQuery = assignmentsQuery.in("class_id", classIds.length ? classIds : ["00000000-0000-0000-0000-000000000000"]);
-  const { data: raw } = await assignmentsQuery;
-  const rows = (raw ?? []) as unknown as Row[];
+
+  // eslint-disable-next-line react-hooks/purity
+  const cutoffMs = Date.now() - 7 * 86400000;
+
+  const [classesRes, assignmentsRes, subsRes, gradesRes] = await Promise.all([
+    classesQuery,
+    assignmentsQuery,
+    conversationIds.length
+      ? supabase
+          .from("submissions")
+          .select("conversation_id, submitted_at")
+          .in("conversation_id", conversationIds)
+      : Promise.resolve({ data: [] }),
+    conversationIds.length
+      ? supabase.from("grades").select("conversation_id").in("conversation_id", conversationIds)
+      : Promise.resolve({ data: [] })
+  ]);
+  const classes = classesRes.data;
+
+  const rows = (assignmentsRes.data ?? []) as unknown as Row[];
 
   const drafts = rows.filter((r) => r.status === "draft");
   const published = rows.filter((r) => r.status === "published");
 
-  const inScope = classIds
-    ? (ids: string[]) => ids.some((id) => (classIds as string[]).includes(id))
-    : () => true;
-
-  const [convRes, enrollRes] = await Promise.all([
-    supabase
-      .from("conversations")
-      .select("id, status, needs_revision, assignment:assignments!inner(due_at, class_id)")
-      .eq("status", "active"),
-    supabase.from("class_students").select("class_id, student_id")
-  ]);
-  const conversations = (convRes.data ?? []).filter((c) => {
-    const a = c.assignment as unknown as { class_id?: string } | null;
-    return a?.class_id ? inScope([a.class_id]) : false;
-  });
-  const conversationIds = conversations.map((c) => c.id as string);
-
-  // eslint-disable-next-line react-hooks/purity
-  const cutoffIso = new Date(Date.now() - 7 * 86400000).toISOString();
-  const { data: recentSubs } = conversationIds.length
-    ? await supabase
-        .from("submissions")
-        .select("conversation_id")
-        .in("conversation_id", conversationIds)
-        .gte("submitted_at", cutoffIso)
-    : { data: [] };
-  const recentlySubmitted = new Set((recentSubs ?? []).map((s) => s.conversation_id as string));
-
-  const [allSubs, allGrades] = conversationIds.length
-    ? await Promise.all([
-        supabase.from("submissions").select("conversation_id").in("conversation_id", conversationIds),
-        supabase.from("grades").select("conversation_id").in("conversation_id", conversationIds)
-      ])
-    : [{ data: [] }, { data: [] }];
-  const submittedIds = new Set((allSubs.data ?? []).map((s) => s.conversation_id as string));
-  const gradedIds = new Set((allGrades.data ?? []).map((g) => g.conversation_id as string));
+  const recentlySubmitted = new Set<string>();
+  const submittedIds = new Set<string>();
+  for (const s of subsRes.data ?? []) {
+    submittedIds.add(s.conversation_id as string);
+    if (new Date(s.submitted_at).getTime() >= cutoffMs) recentlySubmitted.add(s.conversation_id as string);
+  }
+  const gradedIds = new Set((gradesRes.data ?? []).map((g) => g.conversation_id as string));
 
   const toReview = conversations.filter(
     (c) => c.status === "active" && !c.needs_revision && (submittedIds.has(c.id) || gradedIds.has(c.id))

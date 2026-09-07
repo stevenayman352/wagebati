@@ -20,6 +20,7 @@ type Row = {
   role: string;
   is_active: boolean;
   must_change_password: boolean;
+  initial_password: string | null;
   created_at: string;
 };
 
@@ -32,14 +33,13 @@ export default async function AdminAccountsPage({
   const profile = await requireRole(["admin"]);
   const supabase = await createSupabaseServerClient();
 
-  const { count: unreadCount } = await supabase
-    .from("notifications")
-    .select("id", { count: "exact", head: true })
-    .eq("user_id", profile.id)
-    .eq("is_read", false);
-
-  const [usersRes, classesRes, studentsRes, teachersRes] = await Promise.all([
-    supabase.from("profiles").select("id, full_name, email, code, role, is_active, must_change_password, created_at").order("created_at", { ascending: false }),
+  const [{ count: unreadCount }, usersRes, classesRes, studentsRes, teachersRes] = await Promise.all([
+    supabase
+      .from("notifications")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", profile.id)
+      .eq("is_read", false),
+    supabase.from("profiles").select("id, full_name, email, code, role, is_active, must_change_password, initial_password, created_at").order("created_at", { ascending: false }),
     supabase.from("classes").select("id, name"),
     supabase.from("class_students").select("class_id, student_id"),
     supabase.from("class_teachers").select("class_id, teacher_id")

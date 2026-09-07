@@ -8,19 +8,26 @@ export function NavigationLoading() {
   const searchParams = useSearchParams();
   const [loading, setLoading] = useState(false);
   const prevPath = useRef(pathname);
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (prevPath.current !== pathname) {
       setLoading(false);
       prevPath.current = pathname;
+      if (hideTimerRef.current) {
+        clearTimeout(hideTimerRef.current);
+        hideTimerRef.current = null;
+      }
     }
   }, [pathname]);
 
   useEffect(() => {
-    const handleStart = () => setLoading(true);
-    const handleComplete = () => setLoading(false);
+    const handleStart = () => {
+      setLoading(true);
+      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+      hideTimerRef.current = setTimeout(() => setLoading(false), 2000);
+    };
 
-    // Intercept pushState/replaceState for client navigation
     const origPush = history.pushState;
     const origReplace = history.replaceState;
 
@@ -35,7 +42,6 @@ export function NavigationLoading() {
 
     window.addEventListener("popstate", handleStart);
 
-    // Also detect Link clicks and form submissions
     const onDocClick = (e: MouseEvent) => {
       const anchor = (e.target as HTMLElement).closest("a");
       if (anchor && anchor.href && anchor.origin === location.origin) {
@@ -53,13 +59,13 @@ export function NavigationLoading() {
       window.removeEventListener("popstate", handleStart);
       document.removeEventListener("click", onDocClick);
       document.removeEventListener("submit", onFormSubmit);
+      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
     };
   }, []);
 
-  // Also show during RSC streaming (after pathname change but before content ready)
   useEffect(() => {
     if (!loading) return;
-    const timeout = setTimeout(() => setLoading(false), 4000);
+    const timeout = setTimeout(() => setLoading(false), 2000);
     return () => clearTimeout(timeout);
   }, [loading, pathname, searchParams]);
 

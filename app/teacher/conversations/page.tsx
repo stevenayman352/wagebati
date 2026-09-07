@@ -46,22 +46,21 @@ export default async function TeacherConversationsPage({
     .order("last_message_at", { ascending: false });
 
   if (assignment) query = query.eq("assignment_id", assignment);
-  const { data: conversations } = await query;
 
-  // eslint-disable-next-line react-hooks/purity
-  const nowMs = Date.now();
-  const cutoffIso = new Date(nowMs - 7 * 86400000).toISOString();
-
-  const teacherClassIds = await (async () => {
-    if (profile.role === "admin") {
-      const { data } = await supabase.from("classes").select("id");
-      return data?.map((c) => c.id) ?? [];
-    }
-    const { data } = await supabase.from("class_teachers").select("class_id").eq("teacher_id", profile.id);
-    return data?.map((c) => c.class_id as string) ?? [];
-  })();
-
-  const { data: unreadRows } = await supabase.rpc("unread_messages_for");
+  const [convRes, teacherClassIds, unreadRes] = await Promise.all([
+    query,
+    (async () => {
+      if (profile.role === "admin") {
+        const { data } = await supabase.from("classes").select("id");
+        return data?.map((c) => c.id) ?? [];
+      }
+      const { data } = await supabase.from("class_teachers").select("class_id").eq("teacher_id", profile.id);
+      return data?.map((c) => c.class_id as string) ?? [];
+    })(),
+    supabase.rpc("unread_messages_for")
+  ]);
+  const conversations = convRes.data;
+  const unreadRows = unreadRes.data;
   const unread = new Map<string, number>();
   for (const row of unreadRows ?? []) unread.set(row.conversation_id, row.unread_count);
 
@@ -83,30 +82,29 @@ export default async function TeacherConversationsPage({
     } | null;
   }[];
 
-  const recentlySubmitted = await (async () => {
-    const ids = raw.map((c) => c.id as string);
-    if (!ids.length) return new Set<string>();
-    const { data } = await supabase
-      .from("submissions")
-      .select("conversation_id")
-      .in("conversation_id", ids)
-      .gte("submitted_at", cutoffIso);
-    return new Set((data ?? []).map((s) => s.conversation_id as string));
-  })();
+  // eslint-disable-next-line react-hooks/purity
+  const cutoffMs = Date.now() - 7 * 86400000;
+  const conversationIds = raw.map((c) => c.id);
 
-  const anySubmitted = await (async () => {
-    const ids = raw.map((c) => c.id as string);
-    if (!ids.length) return new Set<string>();
-    const { data } = await supabase.from("submissions").select("conversation_id").in("conversation_id", ids);
-    return new Set((data ?? []).map((s) => s.conversation_id as string));
-  })();
+  const [subsRes, gradesRes] = await Promise.all([
+    conversationIds.length
+      ? supabase
+          .from("submissions")
+          .select("conversation_id, submitted_at")
+          .in("conversation_id", conversationIds)
+      : Promise.resolve({ data: [] }),
+    conversationIds.length
+      ? supabase.from("grades").select("conversation_id").in("conversation_id", conversationIds)
+      : Promise.resolve({ data: [] })
+  ]);
 
-  const graded = await (async () => {
-    const ids = raw.map((c) => c.id as string);
-    if (!ids.length) return new Set<string>();
-    const { data } = await supabase.from("grades").select("conversation_id").in("conversation_id", ids);
-    return new Set((data ?? []).map((g) => g.conversation_id as string));
-  })();
+  const recentlySubmitted = new Set<string>();
+  const anySubmitted = new Set<string>();
+  for (const s of subsRes.data ?? []) {
+    anySubmitted.add(s.conversation_id as string);
+    if (new Date(s.submitted_at).getTime() >= cutoffMs) recentlySubmitted.add(s.conversation_id as string);
+  }
+  const graded = new Set((gradesRes.data ?? []).map((g) => g.conversation_id as string));
 
   const filtered = raw.filter((c) => {
     if (activeFilter === "review")

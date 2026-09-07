@@ -6,6 +6,7 @@ import { uploadWithProgress, type UploadHandle } from "@/lib/upload";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { maxBytesFor, allowedMimeFor } from "@/lib/file-rules";
+import { compressImageFile, type CompressProgress } from "@/lib/compress";
 import type { ActionState } from "@/lib/types";
 
 const MAX_IMAGE_BYTES = maxBytesFor("image");
@@ -22,7 +23,7 @@ export function AttachmentUploader({ assignmentId }: { assignmentId: string }) {
   const sizeRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
-  const [progress, setProgress] = useState<{ pct: number; handle: UploadHandle } | null>(null);
+  const [progress, setProgress] = useState<{ pct: number; handle: UploadHandle | null } | null>(null);
 
   async function handleFile(file: File | null) {
     setError(null);
@@ -36,10 +37,18 @@ export function AttachmentUploader({ assignmentId }: { assignmentId: string }) {
       return;
     }
 
-    const ext = file.name.split(".").pop()?.toLowerCase() ?? "jpg";
+    let outFile = file;
+    if (file.size > 200 * 1024) {
+      setProgress({ pct: 0, handle: null });
+      const onC: (p: CompressProgress) => void = (p) => setProgress((p2) => (p2 ? { ...p2, pct: p.pct } : p2));
+      outFile = await compressImageFile(file, onC);
+      setProgress(null);
+    }
+
+    const ext = outFile.name.split(".").pop()?.toLowerCase() ?? "jpg";
     const path = `assignment-attachments/${assignmentId}/${crypto.randomUUID()}.${ext}`;
 
-    const handle = uploadWithProgress(file, path, {
+    const handle = uploadWithProgress(outFile, path, {
       bucket: "assignment-attachments",
       onProgress: (pct) => setProgress((p) => (p ? { ...p, pct } : p))
     });
@@ -54,9 +63,9 @@ export function AttachmentUploader({ assignmentId }: { assignmentId: string }) {
     setProgress(null);
 
     pathRef.current!.value = path;
-    nameRef.current!.value = file.name;
-    mimeRef.current!.value = file.type;
-    sizeRef.current!.value = String(file.size);
+    nameRef.current!.value = outFile.name;
+    mimeRef.current!.value = outFile.type;
+    sizeRef.current!.value = String(outFile.size);
     formRef.current!.requestSubmit();
   }
 
@@ -81,11 +90,15 @@ export function AttachmentUploader({ assignmentId }: { assignmentId: string }) {
       </div>
       {progress ? (
         <div dir="ltr" className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm">
+          <span className="size-3.5 shrink-0 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+          <span className="text-xs font-semibold text-primary">ضغط الصورة...</span>
           <Progress value={progress.pct} className="h-1.5 flex-1" />
           <span className="min-w-9 text-right text-xs tabular-nums text-muted-foreground">{progress.pct}%</span>
-          <Button type="button" variant="ghost" size="sm" onClick={() => { progress.handle.cancel(); setProgress(null); }}>
-            إلغاء
-          </Button>
+          {progress.handle ? (
+            <Button type="button" variant="ghost" size="sm" onClick={() => { progress.handle?.cancel(); setProgress(null); }}>
+              إلغاء
+            </Button>
+          ) : null}
         </div>
       ) : null}
       {error ? <p className="text-sm text-destructive">{error}</p> : null}

@@ -13,13 +13,12 @@ export default async function AdminClassesPage() {
   const profile = await requireRole(["admin"]);
   const supabase = await createSupabaseServerClient();
 
-  const { count: unreadCount } = await supabase
-    .from("notifications")
-    .select("id", { count: "exact", head: true })
-    .eq("user_id", profile.id)
-    .eq("is_read", false);
-
-  const [classesRes, studentsRes, teachersRes] = await Promise.all([
+  const [{ count: unreadCount }, classesRes, studentsRes, teachersRes] = await Promise.all([
+    supabase
+      .from("notifications")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", profile.id)
+      .eq("is_read", false),
     supabase.from("classes").select("id, name, grade_label").order("created_at", { ascending: false }),
     supabase.from("class_students").select("class_id"),
     supabase.from("class_teachers").select("class_id")

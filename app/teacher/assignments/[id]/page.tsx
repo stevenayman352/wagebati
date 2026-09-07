@@ -23,11 +23,21 @@ export default async function TeacherAssignmentPage({ params }: { params: Promis
   const { id } = await params;
   const supabase = await createSupabaseServerClient();
 
-  const { data: assignmentData } = await supabase
-    .from("assignments")
-    .select("id, title, max_grade, due_at, status, classes!inner(name, id)")
-    .eq("id", id)
-    .single();
+  const [assignmentRes, conversationsRes] = await Promise.all([
+    supabase
+      .from("assignments")
+      .select("id, title, max_grade, due_at, status, classes!inner(name, id)")
+      .eq("id", id)
+      .single(),
+    supabase
+      .from("conversations")
+      .select(
+        "id, status, needs_revision, last_message_at, student:profiles!conversations_student_id_fkey(full_name, code), grades(grade), submissions(count)"
+      )
+      .eq("assignment_id", id)
+      .order("updated_at", { ascending: false })
+  ]);
+  const assignmentData = assignmentRes.data;
   if (!assignmentData) notFound();
   const assignment = assignmentData as unknown as {
     id: string;
@@ -49,15 +59,7 @@ export default async function TeacherAssignmentPage({ params }: { params: Promis
     if (!classId || !(taught ?? []).length) notFound();
   }
 
-  const { data: conversationsData } = await supabase
-    .from("conversations")
-    .select(
-      "id, status, needs_revision, last_message_at, student:profiles!conversations_student_id_fkey(full_name, code), grades(grade), submissions(count)"
-    )
-    .eq("assignment_id", id)
-    .order("updated_at", { ascending: false });
-
-  const rows = (conversationsData ?? []) as unknown as ConversationRow[];
+  const rows = (conversationsRes.data ?? []) as unknown as ConversationRow[];
 
   const hasSubmitted = (c: ConversationRow) => {
     const subs = c.submissions as { count?: number }[] | null | undefined;

@@ -39,16 +39,16 @@ async function ensurePushConfig(): Promise<{ vapidPublicKey: string }> {
     updated_at: string;
   } = { updated_at: new Date().toISOString() };
 
-  // The webhook URL is configurable via PUSH_WEBHOOK_URL. When unset we keep
-  // whatever is already stored (the local/dev default from the settings row),
-  // or fall back to the deployed app URL so push works out of the box in
-  // production without hardcoding a host.docker.internal path.
+  // The webhook URL is configurable via PUSH_WEBHOOK_URL. If unset, we use
+  // the deployed app URL so push works out of the box in production.
   const envWebhookUrl = process.env.PUSH_WEBHOOK_URL;
-  if (envWebhookUrl) {
-    patch.push_webhook_url = envWebhookUrl;
-  } else if (!cfg?.push_webhook_url) {
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL;
-    patch.push_webhook_url = appUrl ? `${appUrl.replace(/\/$/, "")}/api/push/send` : undefined;
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+  const expectedWebhookUrl = envWebhookUrl
+    ? envWebhookUrl
+    : appUrl ? `${appUrl.replace(/\/$/, "")}/api/push/send` : undefined;
+
+  if (expectedWebhookUrl && cfg?.push_webhook_url !== expectedWebhookUrl) {
+    patch.push_webhook_url = expectedWebhookUrl;
   }
 
   if (!isValidVapidPublicKey(cfg?.vapid_public_key) || !cfg?.vapid_private_key) {

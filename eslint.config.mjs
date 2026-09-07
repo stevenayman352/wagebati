@@ -5,7 +5,7 @@ const eslintConfig = [
   ...nextVitals,
   ...nextTypescript,
   {
-    ignores: [".next/**", "node_modules/**", "supabase/functions/**"]
+    ignores: [".next/**", "node_modules/**", "supabase/functions/**", "public/ffmpeg/**"]
   }
 ];
 

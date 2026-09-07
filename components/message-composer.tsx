@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { maxBytesFor, allowedMimeFor } from "@/lib/file-rules";
+import { compressImageFile, compressVideoFile, type CompressProgress } from "@/lib/compress";
 import { quotePreview, type ThreadMessage } from "@/components/conversation-thread";
 import { cn } from "@/lib/utils";
 import { Camera, CheckCircle2, CornerUpLeft, Mic, Paperclip, Send, Video, X } from "lucide-react";
@@ -25,20 +26,30 @@ const ALLOWED_IMAGE = allowedMimeFor("image").split(",");
 const init: ActionState = { ok: false, message: "" };
 
 type StagedMedia = { kind: "video" | "image"; storagePath: string; fileName: string; mimeType: string; fileSize: number };
-type PendingUpload = { kind: "video" | "image" | "voice"; name: string; pct: number; handle: UploadHandle };
+type PendingUpload = {
+  kind: "video" | "image" | "voice";
+  name: string;
+  stage: "compress" | "upload";
+  pct: number;
+  handle: UploadHandle | null;
+};
 
 export function MessageComposer({
   conversationId,
   disabled,
+  disabledLabel,
   replyTo,
   onCancelReply,
-  fill = false
+  fill = false,
+  onOptimistic
 }: {
   conversationId: string;
   disabled: boolean;
+  disabledLabel?: string;
   replyTo: ThreadMessage | null;
   onCancelReply: () => void;
   fill?: boolean;
+  onOptimistic?: (msg: Partial<ThreadMessage> & { body: string; kind: string }) => void;
 }) {
   const [textState, textAction, sending] = useActionState(sendTextMessageAction, init);
   const [voiceState, voiceAction, sendingVoice] = useActionState(sendVoiceMessageAction, init);
@@ -55,13 +66,31 @@ export function MessageComposer({
 
   async function uploadMedia(file: File, kind: PendingUpload["kind"], duration?: number) {
     setLocalError(null);
-    const ext = file.name.split(".").pop()?.toLowerCase() ?? "bin";
+
+    let outFile = file;
+    if (kind === "image" || kind === "video") {
+      const onC: (p: CompressProgress) => void = (p) =>
+        setPending((prev) => (prev && prev.stage === "compress" ? { ...prev, pct: p.pct } : prev));
+      if (kind === "image") {
+        setPending({ kind, name: file.name, stage: "compress", pct: 0, handle: null });
+        outFile = await compressImageFile(file, onC);
+      } else {
+        setPending({ kind, name: file.name, stage: "compress", pct: 0, handle: null });
+        const res = await compressVideoFile(file, onC);
+        outFile = res.file;
+      }
+      if (outFile === file) {
+        setPending(null);
+      }
+    }
+
+    const ext = outFile.name.split(".").pop()?.toLowerCase() ?? "bin";
     const path = `message-media/${conversationId}/${crypto.randomUUID()}.${ext}`;
-    const handle = uploadWithProgress(file, path, {
+    const handle = uploadWithProgress(outFile, path, {
       bucket: "message-media",
       onProgress: (pct) => setPending((p) => (p ? { ...p, pct } : p))
     });
-    setPending({ kind, name: file.name, pct: 0, handle });
+    setPending({ kind, name: outFile.name, stage: "upload", pct: 0, handle });
     try {
       await handle.done;
     } catch (e) {
@@ -75,17 +104,27 @@ export function MessageComposer({
       const fd = new FormData();
       fd.set("conversationId", conversationId);
       fd.set("storagePath", path);
-      fd.set("fileName", file.name);
-      fd.set("mimeType", file.type);
-      fd.set("fileSize", String(file.size));
+      fd.set("fileName", outFile.name);
+      fd.set("mimeType", outFile.type);
+      fd.set("fileSize", String(outFile.size));
       fd.set("durationSeconds", String(duration ?? 1));
       if (replyTo) fd.set("replyToMessageId", replyTo.id);
+      onOptimistic?.({
+        kind: "voice",
+        body: "",
+        storage_path: path,
+        file_name: outFile.name,
+        mime_type: outFile.type,
+        file_size: outFile.size,
+        duration_seconds: duration ?? 1,
+        reply_to_message_id: replyTo?.id ? replyTo.id : null
+      });
       voiceAction(fd);
       onCancelReply();
       return;
     }
 
-    setStaged({ kind, storagePath: path, fileName: file.name, mimeType: file.type, fileSize: file.size });
+    setStaged({ kind, storagePath: path, fileName: outFile.name, mimeType: outFile.type, fileSize: outFile.size });
     setMenuOpen(false);
   }
 
@@ -130,6 +169,15 @@ export function MessageComposer({
       setSendingMedia(false);
       setMediaState(result);
       if (result.ok) {
+        onOptimistic?.({
+          kind: staged.kind,
+          body: "",
+          storage_path: staged.storagePath,
+          file_name: staged.fileName,
+          mime_type: staged.mimeType,
+          file_size: staged.fileSize,
+          reply_to_message_id: replyTo?.id ? replyTo.id : null
+        });
         setStaged(null);
         onCancelReply();
         textFormRef.current?.reset();
@@ -145,9 +193,9 @@ export function MessageComposer({
   if (disabled) {
     return (
       <div className="px-3 pb-3">
-        <div className="flex items-center justify-center gap-2 rounded-2xl border border-success/30 bg-success/10 px-4 py-3 text-sm font-bold text-success">
+        <div className="flex items-center justify-center gap-2 rounded-2xl border border-border/70 bg-muted/40 px-4 py-3 text-sm font-semibold text-muted-foreground">
           <CheckCircle2 className="size-4 shrink-0" />
-          تم الانتهاء من تسليم هذا الواجب
+          {disabledLabel ?? "تم الانتهاء من تسليم هذا الواجب"}
         </div>
       </div>
     );
@@ -266,7 +314,18 @@ export function MessageComposer({
             </div>
           ) : null}
         </div>
-        <form ref={textFormRef} action={textAction} className="flex min-w-0 flex-1 items-center gap-1.5" onSubmit={() => onCancelReply()}>
+        <form
+          ref={textFormRef}
+          action={(fd) => {
+            const body = String(fd.get("body") ?? "").trim();
+            if (body) {
+              onOptimistic?.({ kind: "text", body, reply_to_message_id: replyTo?.id ? replyTo.id : null });
+            }
+            onCancelReply();
+            return textAction(fd);
+          }}
+          className="flex min-w-0 flex-1 items-center gap-1.5"
+        >
           <input type="hidden" name="conversationId" value={conversationId} />
           <input type="hidden" name="replyToMessageId" value={replyTo?.id ?? ""} />
           <Input
@@ -311,11 +370,18 @@ export function MessageComposer({
         <div dir="ltr" className="flex items-center gap-2 rounded-full border border-border/70 bg-card px-3 py-1.5 text-sm shadow-card">
           <span className="size-3.5 shrink-0 animate-spin rounded-full border-2 border-primary border-t-transparent" />
           <span className="hidden max-w-40 truncate text-xs text-muted-foreground sm:block">{pending.name}</span>
+          {pending.stage === "compress" ? (
+            <span className="shrink-0 text-xs font-semibold text-primary">
+              {pending.kind === "video" ? "ضغط الفيديو..." : "ضغط الصورة..."}
+            </span>
+          ) : null}
           <Progress value={pending.pct} className="h-1.5 flex-1" />
           <span className="min-w-9 text-end text-xs tabular-nums text-muted-foreground">{pending.pct}%</span>
-          <Button type="button" variant="ghost" size="sm" onClick={() => pending.handle.cancel()} className="rounded-full">
-            إلغاء
-          </Button>
+          {pending.handle ? (
+            <Button type="button" variant="ghost" size="sm" onClick={() => pending.handle?.cancel()} className="rounded-full">
+              إلغاء
+            </Button>
+          ) : null}
         </div>
       ) : null}
 

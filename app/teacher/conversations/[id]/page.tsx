@@ -5,6 +5,7 @@ import type { ThreadMessage } from "@/components/conversation-thread";
 import { ConfirmClose } from "@/components/confirm-close";
 import { ReopenConversation } from "@/components/reopen-conversation";
 import { GradeAutosave } from "@/components/grade-autosave";
+import { LiveGradeRefresh } from "@/components/live-grade-refresh";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { AppNav } from "@/components/app-nav";
@@ -63,6 +64,7 @@ export default async function TeacherConversationPage({ params }: { params: Prom
 
   return (
     <>
+      <LiveGradeRefresh conversationId={id} />
       <div className="relative flex h-dvh flex-col overflow-hidden">
         <header className="z-30 flex flex-col gap-3 border-b border-border/60 bg-card/95 px-4 pt-3.5 pb-3 shadow-sm backdrop-blur-xl md:px-6">
           <div className="mx-auto flex w-full max-w-5xl items-center gap-3">
@@ -73,10 +75,8 @@ export default async function TeacherConversationPage({ params }: { params: Prom
               </Link>
             </Button>
             <div className="min-w-0 flex-1">
-              <h1 className="truncate text-lg font-extrabold leading-snug">{conv.assignment?.title}</h1>
+              <h1 className="truncate text-xl font-extrabold leading-snug md:text-2xl">{conv.assignment?.title}</h1>
             </div>
-            {conv.needs_revision && !closed ? <Badge variant="warning">بانتظار مراجعة الطالب</Badge> : null}
-            {closed ? <Badge variant="success">مكتمل</Badge> : <Badge>قيد المراجعة</Badge>}
           </div>
 
           <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-2">
@@ -90,6 +90,8 @@ export default async function TeacherConversationPage({ params }: { params: Prom
               <CalendarDays className="size-3.5" />
               {formatDueDate(dueAt)}
             </span>
+            {conv.needs_revision && !closed ? <Badge variant="warning">بانتظار مراجعة الطالب</Badge> : null}
+            {closed ? <Badge variant="success">مكتمل</Badge> : <Badge>قيد المراجعة</Badge>}
             <GradeAutosave conversationId={id} maxGrade={maxGrade} initialGrade={grade} />
             {closed ? (
               <ReopenConversation conversationId={id} />

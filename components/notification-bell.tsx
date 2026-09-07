@@ -20,10 +20,14 @@ type NotificationRow = {
 
 const TYPE_LABEL: Record<string, string> = {
   grade: "درجة",
+  grade_recorded: "درجة",
   revision: "مراجعة",
   closed: "إغلاق",
   submission: "حل جديد",
-  message: "رسالة"
+  message: "رسالة",
+  new_assignment: "واجب جديد",
+  due_today: "استحقاق اليوم",
+  due_tomorrow: "استحقاق غدًا"
 };
 
 function timeAgo(value: string) {

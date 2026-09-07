@@ -209,15 +209,6 @@ export async function saveGradeAction(_: ActionState, formData: FormData): Promi
   if (error) return { ok: false, message: error.message };
 
   await supabase.from("conversations").update({ needs_revision: false }).eq("id", parsed.data.conversationId);
-  await supabase.from("notifications").insert({
-    user_id: conversation.student_id,
-    type: "grade",
-    title: "تم تسجيل الدرجة",
-    body: `تم تقييمك في "${(conversation.assignment as unknown as { title?: string })?.title ?? "الواجب"}": ${parsed.data.grade}`,
-    href: `/student/assignments/${parsed.data.conversationId}`,
-    assignment_id: conversation.assignment_id,
-    conversation_id: parsed.data.conversationId
-  });
 
   revalidatePath("/teacher");
   revalidatePath("/student", "layout");
@@ -243,16 +234,6 @@ export async function reopenConversationAction(_: ActionState, formData: FormDat
     .eq("id", parsed.data.id);
 
   if (error) return { ok: false, message: error.message };
-
-  await supabase.from("notifications").insert({
-    user_id: conversation.student_id,
-    type: "message",
-    title: "أعيد فتح المحادثة",
-    body: `أعاد المدرس فتح محادثة "${(conversation.assignment as unknown as { title?: string })?.title ?? "الواجب"}". يمكنكما إرسال الرسائل مجددًا.`,
-    href: `/student/assignments/${parsed.data.id}`,
-    assignment_id: conversation.assignment_id,
-    conversation_id: parsed.data.id
-  });
 
   revalidatePath("/teacher");
   return { ok: true, message: "أعيد فتح المحادثة." };
@@ -299,15 +280,6 @@ export async function gradeConversationAction(_: ActionState, formData: FormData
   if (error) return { ok: false, message: error.message };
 
   await supabase.from("conversations").update({ needs_revision: false }).eq("id", parsed.data.conversationId);
-  await supabase.from("notifications").insert({
-    user_id: conversation.student_id,
-    type: "grade",
-    title: "تم تسجيل الدرجة",
-    body: `تم تقييمك في "${(conversation.assignment as unknown as { title?: string })?.title ?? "الواجب"}": ${parsed.data.grade}`,
-    href: `/student/assignments/${parsed.data.conversationId}`,
-    assignment_id: conversation.assignment_id,
-    conversation_id: parsed.data.conversationId
-  });
 
   revalidatePath("/teacher");
   return { ok: true, message: "تم حفظ الدرجة." };
@@ -328,16 +300,6 @@ export async function requestRevisionAction(_: ActionState, formData: FormData):
 
   const { error } = await supabase.from("conversations").update({ needs_revision: true }).eq("id", parsed.data.id);
   if (error) return { ok: false, message: error.message };
-
-  await supabase.from("notifications").insert({
-    user_id: conversation.student_id,
-    type: "revision",
-    title: "طلب مراجعة",
-    body: `طلب منك المدرس إعادة النظر في حل "${(conversation.assignment as unknown as { title?: string })?.title ?? "الواجب"}".`,
-    href: `/student/assignments/${parsed.data.id}`,
-    assignment_id: conversation.assignment_id,
-    conversation_id: parsed.data.id
-  });
 
   revalidatePath("/teacher");
   return { ok: true, message: "تم طلب مراجعة جديدة." };
@@ -362,16 +324,6 @@ export async function closeConversationAction(_: ActionState, formData: FormData
     .eq("id", parsed.data.id);
 
   if (error) return { ok: false, message: error.message };
-
-  await supabase.from("notifications").insert({
-    user_id: conversation.student_id,
-    type: "closed",
-    title: "تم إنهاء المحادثة",
-    body: `أنهى المدرس محادثة "${(conversation.assignment as unknown as { title?: string })?.title ?? "الواجب"}". لا يمكن إرسال تعديلات جديدة.`,
-    href: `/student/assignments/${parsed.data.id}`,
-    assignment_id: conversation.assignment_id,
-    conversation_id: parsed.data.id
-  });
 
   revalidatePath("/teacher");
   return { ok: true, message: "تم إنهاء المحادثة." };

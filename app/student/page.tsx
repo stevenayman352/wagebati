@@ -6,7 +6,8 @@ import { AssignmentItem } from "@/components/assignment-item";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { PushEnabler } from "@/components/push-enabler";
-import { Home, Mail, Hash, ShieldCheck } from "lucide-react";
+import { NotificationGate } from "@/components/notification-gate";
+import { Home, Mail, Hash } from "lucide-react";
 
 type Row = {
   id: string;
@@ -33,19 +34,22 @@ export default async function StudentPage({
   const { tab } = await searchParams;
   const supabase = await createSupabaseServerClient();
 
-  const { data: raw } = await supabase
-    .from("conversations")
-    .select(
-      "id, status, needs_revision, closed_at, grades(grade), submissions(count), assignment:assignments!inner(title, due_at, max_grade, status, classes!inner(name))"
-    )
-    .eq("student_id", profile.id)
-    .order("created_at", { ascending: false });
-
-  const { count: unreadCount } = await supabase
-    .from("notifications")
-    .select("id", { count: "exact", head: true })
-    .eq("user_id", profile.id)
-    .eq("is_read", false);
+  const [convRes, unreadRes] = await Promise.all([
+    supabase
+      .from("conversations")
+      .select(
+        "id, status, needs_revision, closed_at, grades(grade), submissions(count), assignment:assignments!inner(title, due_at, max_grade, status, classes!inner(name))"
+      )
+      .eq("student_id", profile.id)
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("notifications")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", profile.id)
+      .eq("is_read", false)
+  ]);
+  const raw = convRes.data;
+  const unreadCount = unreadRes.count;
 
   const rows = (raw ?? []) as unknown as Row[];
 
@@ -71,10 +75,6 @@ export default async function StudentPage({
               <div className="flex items-center gap-3 text-muted-foreground">
                 <Hash className="size-4 shrink-0 text-primary" />
                 <span>الكود: {profile.code}</span>
-              </div>
-              <div className="flex items-center gap-3 text-muted-foreground">
-                <ShieldCheck className="size-4 shrink-0 text-primary" />
-                <span>الدور: طالب</span>
               </div>
             </div>
             <div className="mt-6">
@@ -153,83 +153,85 @@ export default async function StudentPage({
     needsRevision.length + overdueRows.length + pending.length + underReview.length;
 
   return (
-    <>
-      <PageShell wide>
-        {/* Header */}
-        <header className="mb-6 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="flex size-11 items-center justify-center rounded-full bg-primary/12 text-lg font-extrabold text-primary">
-              {profile.full_name?.charAt(0) ?? "و"}
-            </div>
-            <div>
-              <h1 className="font-amiri text-2xl font-bold leading-tight">أهلًا {firstName} </h1>
-              <p className="text-sm text-muted-foreground">احفظ وسمع كوس يا بطل</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <NotificationBell userId={profile.id} initialUnread={unreadCount ?? 0} />
-          </div>
-        </header>
-
-        <PushEnabler />
-
-        {/* Action-oriented summary */}
-        <section className="relative mb-6 overflow-hidden rounded-[var(--radius-lg)] bg-primary p-5 text-primary-foreground shadow-raise">
-          <div aria-hidden className="pointer-events-none absolute -start-8 -top-10 size-40 rounded-full bg-white/10 blur-2xl" />
-          <div aria-hidden className="pointer-events-none absolute -end-10 -bottom-14 size-48 rounded-full bg-cyan/20 blur-2xl" />
-          <div className="relative">
-            <p className="text-lg font-extrabold leading-snug">
-              {totalActionable === 0
-                ? "كل واجباتك تمام ، برافو "
-                : `عندك ${totalActionable} واجب محتاج منك شغل`}
-            </p>
-            <p className="mt-0.5 text-xs text-primary-foreground/80">
-              اضغط على الواجب للدخول عليه وتصليح المطلوب
-            </p>
-            <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-              {groups.slice(0, 4).map((g) => (
-                <a
-                  key={g.key}
-                  href={`#${g.key}`}
-                  className="flex items-center justify-between gap-2 rounded-xl bg-white/10 px-3 py-2.5 ring-1 ring-white/15 backdrop-blur-sm transition-colors hover:bg-white/20"
-                >
-                  <span className="text-sm font-semibold">{g.title}</span>
-                  <span className="inline-flex min-w-6 items-center justify-center rounded-full bg-white px-1.5 py-0.5 text-xs font-bold text-primary">
-                    {g.rows.length}
-                  </span>
-                </a>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        {/* Grouped assignment lists */}
-        {groups.map((g) =>
-          g.rows.length === 0 ? null : (
-            <section key={g.key} id={g.key} className="mb-6 scroll-mt-4">
-              <div className="mb-2.5 flex items-center gap-2">
-                <span className={`size-2 rounded-full ${g.accent.split(" ")[0]}`} style={{ background: "currentColor" }} />
-                <h2 className="text-[var(--text-h2)] font-bold">{g.title}</h2>
-                <span className="text-sm text-muted-foreground">({g.rows.length})</span>
+    <NotificationGate>
+      <>
+        <PageShell wide>
+          {/* Header */}
+          <header className="mb-6 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="flex size-11 items-center justify-center rounded-full bg-primary/12 text-lg font-extrabold text-primary">
+                {profile.full_name?.charAt(0) ?? "و"}
               </div>
-              <div className="grid gap-2.5">
-                {g.rows.map((r) => (
-                  <AssignmentItem key={r.id} href={`/student/assignments/${r.id}`} row={r} accent={g.accent} state={g.state} />
+              <div>
+                <h1 className="font-amiri text-2xl font-bold leading-tight">أهلًا {firstName} </h1>
+                <p className="text-sm text-muted-foreground">احفظ وسمع كوس يا بطل</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <NotificationBell userId={profile.id} initialUnread={unreadCount ?? 0} />
+            </div>
+          </header>
+
+          <PushEnabler />
+
+          {/* Action-oriented summary */}
+          <section className="relative mb-6 overflow-hidden rounded-[var(--radius-lg)] bg-primary p-5 text-primary-foreground shadow-raise">
+            <div aria-hidden className="pointer-events-none absolute -start-8 -top-10 size-40 rounded-full bg-white/10 blur-2xl" />
+            <div aria-hidden className="pointer-events-none absolute -end-10 -bottom-14 size-48 rounded-full bg-cyan/20 blur-2xl" />
+            <div className="relative">
+              <p className="text-lg font-extrabold leading-snug">
+                {totalActionable === 0
+                  ? "كل واجباتك تمام ، برافو "
+                  : `عندك ${totalActionable} واجب محتاج منك شغل`}
+              </p>
+              <p className="mt-0.5 text-xs text-primary-foreground/80">
+                اضغط على الواجب للدخول عليه وتصليح المطلوب
+              </p>
+              <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {groups.slice(0, 4).map((g) => (
+                  <a
+                    key={g.key}
+                    href={`#${g.key}`}
+                    className="flex items-center justify-between gap-2 rounded-xl bg-white/10 px-3 py-2.5 ring-1 ring-white/15 backdrop-blur-sm transition-colors hover:bg-white/20"
+                  >
+                    <span className="text-sm font-semibold">{g.title}</span>
+                    <span className="inline-flex min-w-6 items-center justify-center rounded-full bg-white px-1.5 py-0.5 text-xs font-bold text-primary">
+                      {g.rows.length}
+                    </span>
+                  </a>
                 ))}
               </div>
-            </section>
-          )
-        )}
+            </div>
+          </section>
 
-        {rows.length === 0 ? (
-          <div className="rounded-[var(--radius-lg)] border border-dashed border-border bg-card/50 p-10 text-center">
-            <Home className="mx-auto mb-3 size-10 text-primary/40" />
-            <p className="font-semibold text-foreground">مفيش واجبات محتاجة منك حاجة دلوقتي 🎉</p>
-            <p className="mt-1 text-sm text-muted-foreground">حس تلاقي الواجبات هنا أول ما ينزلونها.</p>
-          </div>
-        ) : null}
-      </PageShell>
-      <AppNav role="student" />
-    </>
+          {/* Grouped assignment lists */}
+          {groups.map((g) =>
+            g.rows.length === 0 ? null : (
+              <section key={g.key} id={g.key} className="mb-6 scroll-mt-4">
+                <div className="mb-2.5 flex items-center gap-2">
+                  <span className={`size-2 rounded-full ${g.accent.split(" ")[0]}`} style={{ background: "currentColor" }} />
+                  <h2 className="text-[var(--text-h2)] font-bold">{g.title}</h2>
+                  <span className="text-sm text-muted-foreground">({g.rows.length})</span>
+                </div>
+                <div className="grid gap-2.5">
+                  {g.rows.map((r) => (
+                    <AssignmentItem key={r.id} href={`/student/assignments/${r.id}`} row={r} accent={g.accent} state={g.state} />
+                  ))}
+                </div>
+              </section>
+            )
+          )}
+
+          {rows.length === 0 ? (
+            <div className="rounded-[var(--radius-lg)] border border-dashed border-border bg-card/50 p-10 text-center">
+              <Home className="mx-auto mb-3 size-10 text-primary/40" />
+              <p className="font-semibold text-foreground">مفيش واجبات محتاجة منك حاجة دلوقتي 🎉</p>
+              <p className="mt-1 text-sm text-muted-foreground">حس تلاقي الواجبات هنا أول ما ينزلونها.</p>
+            </div>
+          ) : null}
+        </PageShell>
+        <AppNav role="student" />
+      </>
+    </NotificationGate>
   );
 }

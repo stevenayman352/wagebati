@@ -20,23 +20,28 @@ export default async function TeacherStudentPage({
   const { id: classId, studentId } = await params;
   const supabase = await createSupabaseServerClient();
 
-  const { data: klass } = await supabase.from("classes").select("id, name").eq("id", classId).single();
+  const [klassRes, studentRes, conversationsRes] = await Promise.all([
+    supabase.from("classes").select("id, name").eq("id", classId).single(),
+    supabase
+      .from("profiles")
+      .select("full_name, code, role")
+      .eq("id", studentId)
+      .single(),
+    supabase
+      .from("conversations")
+      .select(
+        "id, status, needs_revision, last_message_at, grades(grade, comment), assignment:assignments!inner(title, max_grade, class_id)"
+      )
+      .eq("student_id", studentId)
+      .order("updated_at", { ascending: false })
+  ]);
+  const klass = klassRes.data;
   if (!klass) notFound();
 
-  const { data: student } = await supabase
-    .from("profiles")
-    .select("full_name, code, role")
-    .eq("id", studentId)
-    .single();
+  const student = studentRes.data;
   if (!student || student.role !== "student") notFound();
 
-  const { data: conversationsData } = await supabase
-    .from("conversations")
-    .select(
-      "id, status, needs_revision, last_message_at, grades(grade, comment), assignment:assignments!inner(title, max_grade, class_id)"
-    )
-    .eq("student_id", studentId)
-    .order("updated_at", { ascending: false });
+  const conversationsData = conversationsRes.data;
 
   const rows = (conversationsData ?? []).filter((conv) => {
     const a = conv.assignment as unknown as { class_id?: string } | null;

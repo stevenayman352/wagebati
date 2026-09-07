@@ -5,6 +5,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { hasSupabaseConfig } from "@/lib/supabase/config";
 import { dashboardPath, getCurrentProfile } from "@/lib/auth";
+import type { ActionState } from "@/lib/types";
 
 export async function signInAction(formData: FormData) {
   if (!hasSupabaseConfig()) redirect("/login?error=not_configured");
@@ -79,10 +80,29 @@ export async function changePasswordAction(formData: FormData) {
   const admin = createSupabaseAdminClient();
   await admin
     .from("profiles")
-    .update({ must_change_password: false, last_login_at: new Date().toISOString() })
+    .update({ 
+      must_change_password: false, 
+      initial_password: null,
+      last_login_at: new Date().toISOString() 
+    })
     .eq("id", user.id);
 
   const profile = await getCurrentProfile();
   if (!profile) redirect("/login");
   redirect(dashboardPath(profile.role));
+}
+
+export async function verifyAdminPasswordAction(formData: FormData): Promise<ActionState> {
+  const password = String(formData.get("password") ?? "");
+  if (!password) return { ok: false, message: "يرجى إدخال كلمة المرور" };
+
+  const supabase = await createSupabaseServerClient();
+  const {
+    data: { user }
+  } = await supabase.auth.getUser();
+  if (!user?.email) return { ok: false, message: "غير مصرح" };
+
+  const { error } = await supabase.auth.signInWithPassword({ email: user.email, password });
+  if (error) return { ok: false, message: "كلمة مرور الأدمن غير صحيحة" };
+  return { ok: true, message: "" };
 }

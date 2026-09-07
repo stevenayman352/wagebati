@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { maxBytesFor, allowedMimeFor } from "@/lib/file-rules";
+import { compressImageFile, compressVideoFile, type CompressProgress } from "@/lib/compress";
 import type { ActionState } from "@/lib/types";
 
 const MAX_VIDEO = maxBytesFor("video");
@@ -20,7 +21,7 @@ const ALLOWED_IMAGE = allowedMimeFor("image").split(",");
 
 const init: ActionState = { ok: false, message: "" };
 
-type UploadProgress = { label: string; pct: number; handle: UploadHandle };
+type UploadProgress = { label: string; pct: number; handle: UploadHandle | null };
 
 export function SubmissionUploader({ conversationId, nextAttempt }: { conversationId: string; nextAttempt: number }) {
   const [state, formAction, pending] = useActionState(submitSubmissionAction, init);
@@ -49,7 +50,7 @@ export function SubmissionUploader({ conversationId, nextAttempt }: { conversati
   }
 
   function cancelUpload() {
-    progress?.handle.cancel();
+    progress?.handle?.cancel();
     setProgress(null);
   }
 
@@ -81,10 +82,26 @@ export function SubmissionUploader({ conversationId, nextAttempt }: { conversati
       });
       const attempt = typeof rpcAttempt === "number" ? rpcAttempt : nextAttempt;
 
-      const mainPath = await uploadOne(mainFile, `${attempt}`, mode === "video" ? "جار رفع الفيديو..." : "جار رفع التسجيل...");
+      let mainOut = mainFile;
+      if (mode === "video") {
+        setProgress({ label: "ضغط الفيديو...", pct: 0, handle: null });
+        const onC: (p: CompressProgress) => void = (p) => setProgress((prev) => (prev ? { ...prev, pct: p.pct } : prev));
+        mainOut = (await compressVideoFile(mainFile, onC)).file;
+        setProgress(null);
+      }
+
+      const compressedImages: File[] = [];
+      for (const img of imageFiles) {
+        setProgress({ label: "ضغط الصور...", pct: 0, handle: null });
+        const onI: (p: CompressProgress) => void = (p) => setProgress((prev) => (prev ? { ...prev, pct: p.pct } : prev));
+        compressedImages.push(await compressImageFile(img, onI));
+        setProgress(null);
+      }
+
+      const mainPath = await uploadOne(mainOut, `${attempt}`, mode === "video" ? "جار رفع الفيديو..." : "جار رفع التسجيل...");
 
       const images: { path: string; name: string; mime: string; size: number }[] = [];
-      for (const img of imageFiles) {
+      for (const img of compressedImages) {
         const p = await uploadOne(img, `${attempt}/images`, "جار رفع الصور...");
         images.push({ path: p, name: img.name, mime: img.type, size: img.size });
       }
@@ -95,9 +112,9 @@ export function SubmissionUploader({ conversationId, nextAttempt }: { conversati
       };
       set("attempt", String(attempt));
       set(mode === "video" ? "videoPath" : "voicePath", mainPath);
-      set(mode === "video" ? "videoName" : "voiceName", mainFile.name);
-      set(mode === "video" ? "videoMime" : "voiceMime", mainFile.type);
-      set(mode === "video" ? "videoSize" : "voiceSize", String(mainFile.size));
+      set(mode === "video" ? "videoName" : "voiceName", mainOut.name);
+      set(mode === "video" ? "videoMime" : "voiceMime", mainOut.type);
+      set(mode === "video" ? "videoSize" : "voiceSize", String(mainOut.size));
       set("imagesJson", JSON.stringify(images));
       formRef.current!.requestSubmit();
     } catch (e) {
@@ -168,11 +185,15 @@ export function SubmissionUploader({ conversationId, nextAttempt }: { conversati
 
       {progress ? (
         <div dir="ltr" className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm">
+          <span className="size-3.5 shrink-0 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+          <span className="text-xs font-semibold text-primary">{progress.label}</span>
           <Progress value={progress.pct} className="h-1.5 flex-1" />
           <span className="min-w-9 text-right text-xs tabular-nums text-muted-foreground">{progress.pct}%</span>
-          <Button type="button" variant="ghost" size="sm" onClick={cancelUpload}>
-            إلغاء
-          </Button>
+          {progress.handle ? (
+            <Button type="button" variant="ghost" size="sm" onClick={cancelUpload}>
+              إلغاء
+            </Button>
+          ) : null}
         </div>
       ) : null}
 

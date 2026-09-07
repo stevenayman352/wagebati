@@ -113,6 +113,8 @@
   --animate-slide-up: slide-up 0.3s ease-out both;
   --animate-press: press 0.2s ease-out;
   --animate-pop: pop 0.18s ease-out both;
+  --animate-splash-halo: splash-halo 1.8s ease-out infinite;
+  --animate-splash-shimmer: splash-shimmer 1.6s ease-in-out infinite;
 }
 
 @layer base {
@@ -185,6 +187,30 @@ body {
   }
   100% {
     transform: scale(1);
+  }
+}
+
+/* Splash screen — halo pulse around the logo */
+@keyframes splash-halo {
+  0% {
+    transform: scale(1);
+    opacity: 0.35;
+  }
+  75%,
+  100% {
+    transform: scale(1.7);
+    opacity: 0;
+  }
+}
+
+/* Splash screen — indeterminate shimmer progress bar */
+@keyframes splash-shimmer {
+  0% {
+    transform: translateX(-140%);
+  }
+  55%,
+  100% {
+    transform: translateX(240%);
   }
 }
 

@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import "./globals.css";
 import { PwaRegister } from "@/components/pwa-register";
 import { NavigationLoading } from "@/components/navigation-loading";
+import { SplashScreen } from "@/components/splash-screen";
 import { Cairo, Amiri } from "next/font/google";
 import { cn } from "@/lib/utils";
 
@@ -40,6 +41,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="ar" dir="rtl" className={cn("font-sans", cairo.variable, amiri.variable)}>
       <body>
         <PwaRegister />
+        <SplashScreen />
         <Suspense fallback={null}>
           <NavigationLoading />
         </Suspense>

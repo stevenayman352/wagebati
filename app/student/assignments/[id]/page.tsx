@@ -2,13 +2,15 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { AppNav } from "@/components/app-nav";
-import { ChatPanel } from "@/components/chat-panel";
+import { LiveConversationPanel } from "@/components/live-conversation-panel";
 import { SubmissionHistory } from "@/components/submission-history";
+import { LiveGradeRefresh } from "@/components/live-grade-refresh";
 import type { ThreadMessage } from "@/components/conversation-thread";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
-import { ArrowRight, Paperclip, ChevronDown, CheckCircle2, XCircle, Clock3 } from "lucide-react";
+import { formatDueDate } from "@/components/due-date-card";
+import { ArrowRight, Paperclip, ChevronDown, CheckCircle2, XCircle, Clock3, CalendarDays } from "lucide-react";
 
 type SubmissionImage = {
   id: string;
@@ -34,14 +36,28 @@ export default async function StudentAssignmentPage({ params }: { params: Promis
   const { id } = await params;
   const supabase = await createSupabaseServerClient();
 
-  const { data: conversation } = await supabase
-    .from("conversations")
-    .select(
-      "id, assignment_id, status, needs_revision, closed_at, grades(grade), assignment:assignments!inner(title, instructions, due_at, max_grade, status)"
-    )
-    .eq("id", id)
-    .eq("student_id", profile.id)
-    .single();
+  const [conversationRes, submissionsRes, messagesRes] = await Promise.all([
+    supabase
+      .from("conversations")
+      .select(
+        "id, assignment_id, status, needs_revision, closed_at, grades(grade), assignment:assignments!inner(title, instructions, due_at, max_grade, status)"
+      )
+      .eq("id", id)
+      .eq("student_id", profile.id)
+      .single(),
+    supabase
+      .from("submissions")
+      .select("id, attempt_number, video_path, video_name, voice_path, voice_name, submitted_at, submission_images(id, storage_path, file_name, mime_type, sort_number)")
+      .eq("conversation_id", id)
+      .order("attempt_number", { ascending: false }),
+    supabase
+      .from("messages")
+      .select("id, sender_id, sender_role, kind, body, storage_path, file_name, mime_type, file_size, duration_seconds, deleted_from_storage_at, reply_to_message_id, created_at")
+      .eq("conversation_id", id)
+      .order("created_at")
+      .limit(1000)
+  ]);
+  const conversation = conversationRes.data;
   if (!conversation) notFound();
 
   const conv = conversation as unknown as {
@@ -55,26 +71,13 @@ export default async function StudentAssignmentPage({ params }: { params: Promis
   };
 
   const assignmentId = conv.assignment_id;
-  const [attachmentsRes, submissionsRes, messagesRes] = await Promise.all([
-    assignmentId
-      ? supabase
-          .from("assignment_attachments")
-          .select("id, file_name, mime_type, storage_path")
-          .eq("assignment_id", assignmentId)
-          .order("created_at")
-      : Promise.resolve({ data: [] }),
-    supabase
-      .from("submissions")
-      .select("id, attempt_number, video_path, video_name, voice_path, voice_name, submitted_at, submission_images(id, storage_path, file_name, mime_type, sort_number)")
-      .eq("conversation_id", id)
-      .order("attempt_number", { ascending: false }),
-    supabase
-      .from("messages")
-      .select("id, sender_id, sender_role, kind, body, storage_path, file_name, mime_type, file_size, duration_seconds, deleted_from_storage_at, reply_to_message_id, created_at")
-      .eq("conversation_id", id)
-      .order("created_at")
-      .limit(1000)
-  ]);
+  const attachmentsRes = assignmentId
+    ? await supabase
+        .from("assignment_attachments")
+        .select("id, file_name, mime_type, storage_path")
+        .eq("assignment_id", assignmentId)
+        .order("created_at")
+    : { data: [] };
 
   const attachments = (attachmentsRes.data ?? []) as { id: string; file_name: string; storage_path: string }[];
   const submissions = (submissionsRes.data ?? []) as unknown as Submission[];
@@ -110,7 +113,6 @@ export default async function StudentAssignmentPage({ params }: { params: Promis
   const submissionUrls: Record<string, string | null> = {};
   for (const t of mediaTargets) submissionUrls[t.key] = submissionUrlByPath.get(t.path) ?? null;
 
-  const active = conv.status === "active";
   const grade = conv.grades?.grade ?? null;
   // Server component evaluated once per request; the timestamp is fresh each render.
   // eslint-disable-next-line react-hooks/purity
@@ -131,6 +133,7 @@ export default async function StudentAssignmentPage({ params }: { params: Promis
 
   return (
     <>
+      <LiveGradeRefresh conversationId={id} />
       {/* Chat-first full-height layout */}
       <div className="relative flex h-dvh flex-col overflow-hidden">
         <header className="z-30 flex flex-col gap-3 border-b border-border/60 bg-card/95 px-4 pt-3.5 pb-3 shadow-sm backdrop-blur-xl md:px-6">
@@ -142,13 +145,20 @@ export default async function StudentAssignmentPage({ params }: { params: Promis
               </Link>
             </Button>
             <div className="min-w-0 flex-1">
-              <h1 className="truncate text-lg font-extrabold leading-snug">{conv.assignment?.title}</h1>
+              <h1 className="truncate text-xl font-extrabold leading-snug md:text-2xl">{conv.assignment?.title}</h1>
             </div>
-            {submissions.length ? <SubmissionHistory submissions={submissions} urls={submissionUrls} /> : null}
-            <span className={cn("inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-bold", homeworkState.cls)}>
+          </div>
+
+          <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-2">
+            <span className={cn("inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-bold", homeworkState.cls)}>
               <homeworkState.Icon className="size-3.5" />
               {homeworkState.label}
             </span>
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-muted/40 px-3 py-1 text-xs font-bold text-muted-foreground">
+              <CalendarDays className="size-3.5" />
+              {formatDueDate(conv.assignment?.due_at ?? null)}
+            </span>
+            {submissions.length ? <SubmissionHistory submissions={submissions} urls={submissionUrls} /> : null}
           </div>
 
           {conv.assignment?.instructions ? (
@@ -196,12 +206,13 @@ export default async function StudentAssignmentPage({ params }: { params: Promis
         {/* Conversation — fills remaining viewport height; the chat scrolls, header stays */}
         <main className="min-h-0 flex-1 px-2 pt-2 pb-20 sm:px-4 md:px-6 md:pb-24">
           <div className="mx-auto flex h-full w-full max-w-5xl flex-col rounded-[var(--radius-lg)] border border-border/70 bg-card shadow-card">
-            <ChatPanel
+            <LiveConversationPanel
               conversationId={id}
+              dueAt={conv.assignment?.due_at ?? null}
+              initialStatus={conv.status}
               initial={threadMessages}
               signed={messageSigned}
               mineId={profile.id}
-              disabled={!active}
               fill
             />
           </div>

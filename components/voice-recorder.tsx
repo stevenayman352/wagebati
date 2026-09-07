@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Mp3Encoder } from "@breezystack/lamejs";
 import { Button } from "@/components/ui/button";
 import { Check, Mic, Pause, Play, Square, Trash2, Send, X } from "lucide-react";
 
@@ -21,6 +20,15 @@ function formatTime(totalSeconds: number) {
   const m = Math.floor(totalSeconds / 60);
   const s = totalSeconds % 60;
   return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+let mp3EncoderPromise: Promise<typeof import("@breezystack/lamejs")> | null = null;
+
+function loadMp3Encoder() {
+  if (!mp3EncoderPromise) {
+    mp3EncoderPromise = import("@breezystack/lamejs");
+  }
+  return mp3EncoderPromise;
 }
 
 export function VoiceRecorder({
@@ -173,7 +181,8 @@ export function VoiceRecorder({
     }
 
     try {
-      const encoder = new Mp3Encoder(1, sampleRate, BIT_RATE);
+      const lamejs = await loadMp3Encoder();
+      const encoder = new lamejs.Mp3Encoder(1, sampleRate, BIT_RATE);
       const parts: Uint8Array[] = [];
       for (const chunk of chunks) {
         const encoded = encoder.encodeBuffer(chunk);
@@ -269,7 +278,6 @@ export function VoiceRecorder({
     );
   }
 
-  // Preview phase
   return (
     <div className="flex flex-wrap items-center gap-2">
       {uploading ? (

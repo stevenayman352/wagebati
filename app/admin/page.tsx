@@ -15,18 +15,19 @@ export default async function AdminHomePage() {
   const profile = await requireRole(["admin"]);
   const supabase = await createSupabaseServerClient();
 
-  const { count: unreadCount } = await supabase
-    .from("notifications")
-    .select("id", { count: "exact", head: true })
-    .eq("user_id", profile.id)
-    .eq("is_read", false);
+  const [{ count: unreadCount }, classesRes] = await Promise.all([
+    supabase
+      .from("notifications")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", profile.id)
+      .eq("is_read", false),
+    supabase
+      .from("classes")
+      .select("id, name, grade_label")
+      .order("created_at", { ascending: false })
+  ]);
 
-  const { data: classesRes } = await supabase
-    .from("classes")
-    .select("id, name, grade_label")
-    .order("created_at", { ascending: false });
-
-  const classes = (classesRes ?? []).map((c) => ({ id: c.id as string, name: c.name as string }));
+  const classes = (classesRes.data ?? []).map((c) => ({ id: c.id as string, name: c.name as string }));
 
   return (
     <AdminLayout

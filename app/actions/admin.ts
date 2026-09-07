@@ -9,6 +9,7 @@ import { accountSchema, classSchema, uuidSchema } from "@/lib/validators";
 import { accountEmailForCode, generateAccountCode } from "@/lib/accounts";
 import { MAX_IMPORT_FILE_BYTES, parseImportFile, validateImportRows } from "@/lib/import-accounts";
 import type { ActionState, ImportIssue } from "@/lib/types";
+import { verifyAdminPasswordAction } from "@/app/actions/auth";
 
 export async function createAccountAction(_: ActionState, formData: FormData): Promise<ActionState> {
   await requireRole(["admin"]);
@@ -44,7 +45,8 @@ export async function createAccountAction(_: ActionState, formData: FormData): P
     code: available.code!,
     role: data.role,
     is_active: true,
-    must_change_password: true
+    must_change_password: true,
+    initial_password: data.password
   });
 
   if (profileError) return { ok: false, message: profileError.message };
@@ -137,7 +139,8 @@ export async function importAccountsAction(_: ActionState, formData: FormData): 
       code: row.code,
       role: row.role,
       is_active: true,
-      must_change_password: true
+      must_change_password: true,
+      initial_password: row.password
     });
 
     if (profileError) {
@@ -297,27 +300,74 @@ export async function resetPasswordAction(_: ActionState, formData: FormData): P
   return { ok: true, message: "تمت إعادة تعيين كلمة المرور وسيُطلب تغييرها عند الدخول." };
 }
 
-export async function deleteAccountAction(formData: FormData) {
+export async function deleteAccountAction(_: ActionState, formData: FormData): Promise<ActionState> {
   const profile = await requireRole(["admin"]);
   const userId = uuidSchema.safeParse(formData.get("userId"));
+  const adminPassword = String(formData.get("adminPassword") ?? "");
 
-  if (!userId.success) redirect("/admin/accounts?error=invalid");
-  if (profile.id === userId.data) redirect("/admin/accounts?error=self_delete");
+  if (!userId.success) return { ok: false, message: "طلب غير صالح." };
+  if (profile.id === userId.data) return { ok: false, message: "لا يمكنك حذف حسابك الحالي." };
+  if (!adminPassword) return { ok: false, message: "يرجى إدخال كلمة مرور الأدمن للتأكيد" };
+
+  const verify = await verifyAdminPasswordAction({ get: () => adminPassword } as unknown as FormData);
+  if (!verify.ok) return { ok: false, message: verify.message ?? "كلمة مرور الأدمن غير صحيحة" };
 
   const admin = createSupabaseAdminClient();
 
-  await admin.from("class_students").delete().eq("student_id", userId.data);
-  await admin.from("class_teachers").delete().eq("teacher_id", userId.data);
-  await admin.from("grades").delete().eq("graded_by", userId.data);
-  await admin.from("assignment_attachments").delete().eq("uploaded_by", userId.data);
-  await admin.from("assignments").delete().or(`teacher_id.eq.${userId.data},created_by.eq.${userId.data}`);
-  await admin.from("classes").delete().eq("created_by", userId.data);
+  await Promise.all([
+    admin.from("class_students").delete().eq("student_id", userId.data),
+    admin.from("class_teachers").delete().eq("teacher_id", userId.data),
+    admin.from("grades").delete().eq("graded_by", userId.data),
+    admin.from("assignment_attachments").delete().eq("uploaded_by", userId.data),
+    admin.from("assignments").delete().or(`teacher_id.eq.${userId.data},created_by.eq.${userId.data}`),
+    admin.from("classes").delete().eq("created_by", userId.data)
+  ]);
   await admin.from("profiles").delete().eq("id", userId.data);
 
   const { error } = await admin.auth.admin.deleteUser(userId.data);
-  if (error) redirect("/admin/accounts?error=delete_failed");
+  if (error) return { ok: false, message: "تعذر حذف الحساب، حاول مجددًا." };
 
   revalidatePath("/admin");
   revalidatePath("/admin/accounts");
-  redirect("/admin/accounts");
+  return { ok: true, message: "تم حذف الحساب بنجاح." };
+}
+
+export async function bulkDeleteAccountsAction(_: ActionState, formData: FormData): Promise<ActionState> {
+  const profile = await requireRole(["admin"]);
+  const rawIds = formData.getAll("userIds");
+  const userIds = rawIds
+    .map((id) => uuidSchema.safeParse(id))
+    .filter((r) => r.success)
+    .map((r) => r.data);
+
+  const adminPassword = String(formData.get("adminPassword") ?? "");
+
+  if (userIds.length === 0) return { ok: false, message: "لم يتم تحديد حسابات." };
+  if (!adminPassword) return { ok: false, message: "يرجى إدخال كلمة مرور الأدمن للتأكيد" };
+
+  const verify = await verifyAdminPasswordAction({ get: () => adminPassword } as unknown as FormData);
+  if (!verify.ok) return { ok: false, message: verify.message ?? "كلمة مرور الأدمن غير صحيحة" };
+
+  const admin = createSupabaseAdminClient();
+
+  if (userIds.includes(profile.id)) {
+    return { ok: false, message: "لا يمكنك حذف حسابك الحالي." };
+  }
+
+  for (const userId of userIds) {
+    await Promise.all([
+      admin.from("class_students").delete().eq("student_id", userId),
+      admin.from("class_teachers").delete().eq("teacher_id", userId),
+      admin.from("grades").delete().eq("graded_by", userId),
+      admin.from("assignment_attachments").delete().eq("uploaded_by", userId),
+      admin.from("assignments").delete().or(`teacher_id.eq.${userId},created_by.eq.${userId}`),
+      admin.from("classes").delete().eq("created_by", userId)
+    ]);
+    await admin.from("profiles").delete().eq("id", userId);
+    await admin.auth.admin.deleteUser(userId);
+  }
+
+  revalidatePath("/admin");
+  revalidatePath("/admin/accounts");
+  return { ok: true, message: `تم حذف ${userIds.length} حساب بنجاح.` };
 }

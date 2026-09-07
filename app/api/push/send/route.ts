@@ -11,7 +11,7 @@ const service = () =>
   });
 
 export async function POST(req: NextRequest) {
-  const rl = rateLimit({ request: req, max: 30, windowMs: 60_000 });
+  const rl = rateLimit({ request: req, max: 500, windowMs: 60_000 });
   if (!rl.allowed) {
     return Response.json({ error: "rate limited" }, { status: 429 });
   }
@@ -58,6 +58,7 @@ export async function POST(req: NextRequest) {
   });
 
   const dead: string[] = [];
+  const failures: { endpoint: string; status?: number; message: string }[] = [];
   const results = await Promise.all(
     subs.map(async (sub) => {
       try {
@@ -65,6 +66,8 @@ export async function POST(req: NextRequest) {
         return true;
       } catch (err) {
         const status = (err as { statusCode?: number })?.statusCode;
+        const message = err instanceof Error ? err.message : "unknown error";
+        failures.push({ endpoint: sub.endpoint.slice(0, 60) + "…", status, message });
         if (status === 404 || status === 410) dead.push(sub.endpoint);
         return false;
       }
@@ -75,5 +78,8 @@ export async function POST(req: NextRequest) {
 
   const count = results.filter(Boolean).length;
   const failed = results.length - count;
+  if (failed > 0) {
+    console.error(`[push] userId=${userId} delivered=${count} failed=${failed}`, failures);
+  }
   return Response.json({ ok: true, count, failed });
 }

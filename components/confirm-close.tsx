@@ -20,7 +20,7 @@ export function ConfirmClose({ conversationId, disabled = false }: { conversatio
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button type="button" disabled={disabled} className="w-full bg-destructive text-white hover:bg-destructive/90">
+        <Button type="button" disabled={disabled} className="w-full md:w-auto bg-destructive text-white hover:bg-destructive/90">
           <Ban className="h-4 w-4" />
           إنهاء المحادثة
         </Button>

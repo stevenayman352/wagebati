@@ -20,7 +20,7 @@ export function ReopenConversation({ conversationId }: { conversationId: string 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button type="button" className="w-full bg-success text-white hover:bg-success/90">
+        <Button type="button" className="w-full md:w-auto bg-success text-white hover:bg-success/90">
           <Unlock className="h-4 w-4" />
           فتح المحادثة
         </Button>

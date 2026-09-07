@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { saveGradeAction } from "@/app/actions/teacher";
 import type { ActionState } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -20,7 +19,6 @@ export function GradeAutosave({
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const router = useRouter();
 
   async function handleChange(next: string) {
     setValue(next);
@@ -42,8 +40,10 @@ export function GradeAutosave({
     const state: ActionState = await saveGradeAction({ ok: false, message: "" }, fd);
     setSaving(false);
     if (state.ok) {
+      // The page re-renders the grade through LiveGradeRefresh (debounced
+      // realtime subscription) so we don't force a full router.refresh() on
+      // every keystroke-save.
       setSaved(true);
-      router.refresh();
     } else setError(state.message || "تعذر حفظ الدرجة.");
   }
 

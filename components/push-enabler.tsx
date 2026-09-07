@@ -41,6 +41,7 @@ export function PushEnabler() {
         return;
       }
       try {
+        void getVapidPublicKeyAction().catch(() => {});
         const registration = await navigator.serviceWorker.getRegistration("/sw.js");
         if (registration) {
           const existing = await registration.pushManager.getSubscription();
