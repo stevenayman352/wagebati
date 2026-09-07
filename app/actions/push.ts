@@ -35,21 +35,12 @@ async function ensurePushConfig(): Promise<{ vapidPublicKey: string }> {
     vapid_public_key?: string;
     vapid_private_key?: string;
     push_webhook_secret?: string;
-    push_webhook_url?: string;
     updated_at: string;
   } = { updated_at: new Date().toISOString() };
 
-  // The webhook URL is configurable via PUSH_WEBHOOK_URL. If unset, we use
-  // the deployed app URL so push works out of the box in production.
-  const envWebhookUrl = process.env.PUSH_WEBHOOK_URL;
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
-  const expectedWebhookUrl = envWebhookUrl
-    ? envWebhookUrl
-    : appUrl ? `${appUrl.replace(/\/$/, "")}/api/push/send` : undefined;
-
-  if (expectedWebhookUrl && cfg?.push_webhook_url !== expectedWebhookUrl) {
-    patch.push_webhook_url = expectedWebhookUrl;
-  }
+  // push_webhook_url is set once in the database and is authoritative — it is
+  // never re-derived from env vars here, so a stray PUSH_WEBHOOK_URL/NEXT_PUBLIC_APP_URL
+  // can no longer overwrite the correct URL that the DB trigger posts to.
 
   if (!isValidVapidPublicKey(cfg?.vapid_public_key) || !cfg?.vapid_private_key) {
     const keys = webpush.generateVAPIDKeys();
@@ -57,7 +48,7 @@ async function ensurePushConfig(): Promise<{ vapidPublicKey: string }> {
     patch.vapid_private_key = keys.privateKey;
   }
   if (!cfg?.push_webhook_secret) patch.push_webhook_secret = randomBytes(32).toString("hex");
-  if (patch.vapid_public_key || patch.push_webhook_secret || patch.push_webhook_url) {
+  if (patch.vapid_public_key || patch.push_webhook_secret) {
     const { error } = await sb.from("settings").update(patch).eq("id", 1);
     if (error) throw new Error(error.message);
   }
