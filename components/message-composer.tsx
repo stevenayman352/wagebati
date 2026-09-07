@@ -137,7 +137,7 @@ export function MessageComposer({
       return;
     }
     if (file.size > MAX_VIDEO) {
-      setLocalError("حجم الفيديو أكبر من 250MB.");
+      setLocalError("حجم الفيديو كبير جدًا (أكثر من 5GB).");
       return;
     }
     await uploadMedia(file, "video");

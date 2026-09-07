@@ -62,7 +62,7 @@ export const messageSchema = z.object({
   storagePath: z.string().trim().max(600).optional(),
   fileName: z.string().trim().max(255).optional(),
   mimeType: z.string().trim().max(120).optional(),
-  fileSize: z.coerce.number().int().positive().max(262144000).optional(),
+  fileSize: z.coerce.number().int().positive().max(5368709120).optional(),
   durationSeconds: z.coerce.number().int().min(1).max(3600).optional(),
   replyToMessageId: z.string().uuid().optional().nullable()
 });
@@ -87,8 +87,8 @@ const submittedMediaSchema = z.object({
 });
 
 export const videoMediaSchema = submittedMediaSchema.refine(
-  (v) => (v.mime === "video/mp4" || v.mime === "video/quicktime") && v.size <= 262144000,
-  { message: "الفيديو يجب أن يكون MP4/MOV بحجم حتى 250MB" }
+  (v) => (v.mime === "video/mp4" || v.mime === "video/quicktime") && v.size <= 5368709120,
+  { message: "الفيديو يجب أن يكون MP4/MOV" }
 );
 
 export const voiceMediaSchema = submittedMediaSchema.refine(

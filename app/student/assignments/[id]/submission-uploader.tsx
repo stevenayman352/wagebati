@@ -66,7 +66,7 @@ export function SubmissionUploader({ conversationId, nextAttempt }: { conversati
       return;
     }
     if (mainFile.size > limits.max) {
-      setLocalError(mode === "video" ? "حجم الفيديو أكبر من 250MB." : "حجم التسجيل أكبر من 10MB.");
+      setLocalError(mode === "video" ? "حجم الفيديو كبير جدًا (أكثر من 5GB)." : "حجم التسجيل أكبر من 10MB.");
       return;
     }
     const badImage = imageFiles.find((f) => !ALLOWED_IMAGE.includes(f.type) || f.size > MAX_IMAGE);

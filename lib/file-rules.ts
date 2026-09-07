@@ -1,9 +1,11 @@
+const VIDEO_CAP_BYTES = 5 * 1024 * 1024 * 1024;
+
 export type AcceptableKind = "video" | "image" | "voice";
 
 export const MIME_LIMITS: Record<AcceptableKind, { mimes: readonly string[]; maxBytes: number }> = {
   video: {
     mimes: ["video/mp4", "video/quicktime"],
-    maxBytes: 250 * 1024 * 1024
+    maxBytes: VIDEO_CAP_BYTES
   },
   image: {
     mimes: ["image/jpeg", "image/png", "image/webp"],
@@ -15,7 +17,7 @@ export const MIME_LIMITS: Record<AcceptableKind, { mimes: readonly string[]; max
   }
 };
 
-export const MAX_UPLOAD_BYTES = 250 * 1024 * 1024;
+export const MAX_UPLOAD_BYTES = VIDEO_CAP_BYTES;
 
 export const allowedMimeTypes = {
   video: MIME_LIMITS.video.mimes,
