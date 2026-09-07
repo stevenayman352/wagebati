@@ -44,11 +44,18 @@ export async function POST(req: NextRequest) {
 
   const { data: subs } = await sb
     .from("push_subscriptions")
-    .select("endpoint, p256dh, auth")
+    .select("endpoint, p256dh, auth, vapid_key")
     .eq("user_id", userId)
     .order("created_at", { ascending: true });
 
   if (!subs || subs.length === 0) return Response.json({ ok: true, count: 0 });
+
+  const validSubs = subs.filter((sub) => !sub.vapid_key || sub.vapid_key === cfg.vapid_public_key);
+  if (validSubs.length < subs.length) {
+    const stale = subs.filter((sub) => sub.vapid_key && sub.vapid_key !== cfg.vapid_public_key);
+    await sb.from("push_subscriptions").delete().in("endpoint", stale.map((s) => s.endpoint));
+  }
+  if (validSubs.length === 0) return Response.json({ ok: true, count: 0, stale: true });
 
   webpush.setVapidDetails("mailto:admin@wajebaty.local", cfg.vapid_public_key, cfg.vapid_private_key);
   const payload = JSON.stringify({
@@ -60,7 +67,7 @@ export async function POST(req: NextRequest) {
   const dead: string[] = [];
   const failures: { endpoint: string; status?: number; message: string }[] = [];
   const results = await Promise.all(
-    subs.map(async (sub) => {
+    validSubs.map(async (sub) => {
       try {
         await webpush.sendNotification({ endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } }, payload);
         return true;

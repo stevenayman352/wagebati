@@ -45,7 +45,7 @@ export function PushEnabler() {
       throw new Error("مفتاح الدفع غير صالح.");
     }
     const subscription = await subscribeWithRetry(registration, keyBytes.slice().buffer);
-    await persist(subscription);
+    await persist(subscription, publicKey);
   }
 
   async function enable() {
@@ -58,9 +58,10 @@ export function PushEnabler() {
       }
       await navigator.serviceWorker.register("/sw.js");
       const registration = await navigator.serviceWorker.ready;
+      const currentKey = await getVapidPublicKeyAction();
       const existing = await registration.pushManager.getSubscription();
       const saved = await getMyPushSubscriptionAction();
-      if (existing && saved.ok && saved.endpoint === existing.endpoint) {
+      if (existing && saved.ok && saved.endpoint === existing.endpoint && saved.vapidKey === currentKey) {
         setStatus("done");
         return;
       }
@@ -96,12 +97,13 @@ export function PushEnabler() {
     throw new Error("تعذر الاشتراك في خدمة الدفع.");
   }
 
-  async function persist(subscription: PushSubscription) {
+  async function persist(subscription: PushSubscription, vapidKey: string) {
     const json = subscription.toJSON();
     const fd = new FormData();
     fd.set("endpoint", subscription.endpoint);
     fd.set("p256dh", json.keys?.p256dh ?? "");
     fd.set("auth", json.keys?.auth ?? "");
+    fd.set("vapidKey", vapidKey);
     const result = await savePushSubscriptionAction(fd);
     if (!result.ok) throw new Error(result.message);
   }
@@ -133,6 +135,7 @@ export function PushEnabler() {
       }
       try {
         void getVapidPublicKeyAction().catch(() => {});
+        const currentKey = await getVapidPublicKeyAction();
         const registration = await navigator.serviceWorker.getRegistration("/sw.js");
         if (registration) {
           const existing = await registration.pushManager.getSubscription();
@@ -141,7 +144,7 @@ export function PushEnabler() {
             return;
           }
           const saved = await getMyPushSubscriptionAction();
-          if (saved.ok && saved.endpoint === existing.endpoint) {
+          if (saved.ok && saved.endpoint === existing.endpoint && saved.vapidKey === currentKey) {
             if (active) setStatus("done");
             return;
           }

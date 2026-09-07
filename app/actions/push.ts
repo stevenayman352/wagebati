@@ -67,27 +67,34 @@ export async function savePushSubscriptionAction(formData: FormData): Promise<Ac
   const endpoint = formData.get("endpoint");
   const p256dh = formData.get("p256dh");
   const auth = formData.get("auth");
+  const vapidKey = formData.get("vapidKey");
   if (typeof endpoint !== "string" || !endpoint.startsWith("https://")) return { ok: false, message: "اشتراك غير صالح." };
   if (typeof p256dh !== "string" || p256dh.length < 16) return { ok: false, message: "مفتاح غير صالح." };
   if (typeof auth !== "string" || auth.length < 8) return { ok: false, message: "رمز غير صالح." };
 
   const sb = service();
   await sb.from("push_subscriptions").delete().eq("endpoint", endpoint);
-  const { error } = await sb.from("push_subscriptions").insert({ user_id: profile.id, endpoint, p256dh, auth });
+  const { error } = await sb.from("push_subscriptions").insert({
+    user_id: profile.id,
+    endpoint,
+    p256dh,
+    auth,
+    vapid_key: typeof vapidKey === "string" && vapidKey.length > 0 ? vapidKey : null
+  });
   if (error) return { ok: false, message: error.message };
   return { ok: true, message: "" };
 }
 
-export async function getMyPushSubscriptionAction(): Promise<{ ok: boolean; endpoint?: string }> {
+export async function getMyPushSubscriptionAction(): Promise<{ ok: boolean; endpoint?: string; vapidKey?: string }> {
   const profile = await getCurrentProfile();
   if (!profile) return { ok: false };
   const sb = service();
   const { data } = await sb
     .from("push_subscriptions")
-    .select("endpoint")
+    .select("endpoint, vapid_key")
     .eq("user_id", profile.id)
     .maybeSingle();
-  return { ok: true, endpoint: data?.endpoint };
+  return { ok: true, endpoint: data?.endpoint, vapidKey: data?.vapid_key ?? undefined };
 }
 
 export async function deletePushSubscriptionAction(formData: FormData): Promise<ActionState> {
