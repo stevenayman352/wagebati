@@ -18,7 +18,6 @@ import { StatusPill, statusVisual } from "@/components/status-chip";
 type ConversationRow = {
   id: string;
   status: string;
-  needs_revision: boolean;
   closed_by: string | null;
   last_message_at: string | null;
   student?: { full_name: string; code: number } | null;
@@ -40,7 +39,7 @@ export default async function TeacherAssignmentPage({ params }: { params: Promis
     supabase
       .from("conversations")
       .select(
-        "id, status, needs_revision, closed_by, last_message_at, student:profiles!conversations_student_id_fkey(full_name, code), grades(grade), submissions(count)"
+        "id, status, closed_by, last_message_at, student:profiles!conversations_student_id_fkey(full_name, code), grades(grade), submissions(count)"
       )
       .eq("assignment_id", id)
       .order("updated_at", { ascending: false })
@@ -87,7 +86,6 @@ export default async function TeacherAssignmentPage({ params }: { params: Promis
     const statusKey = computeAssignmentStatus({
       role: "teacher",
       status: c.status,
-      needsRevision: c.needs_revision,
       closedBy: c.closed_by,
       hasGrade: grade !== undefined && grade !== null,
       hasSubmission: hasSubmission.has(c.id) || (c.submissions?.[0]?.count ?? 0) > 0,
@@ -118,9 +116,18 @@ export default async function TeacherAssignmentPage({ params }: { params: Promis
           </span>
           <div className="min-w-0">
             <h1 className="truncate text-[var(--text-h1)] font-extrabold">{assignment.title}</h1>
-            <p className="mt-0.5 text-sm text-muted-foreground">
-              {assignment.classes?.name ? `فصل ${assignment.classes.name} · ` : ""}
-              {maxGrade} درجة
+            <p dir="rtl" className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-sm text-muted-foreground">
+              {assignment.classes?.name ? (
+                <>
+                  <span className="min-w-0 truncate">
+                    فصل {assignment.classes.name}
+                  </span>
+                  <span aria-hidden="true">·</span>
+                </>
+              ) : null}
+              <span className="whitespace-nowrap">
+                {maxGrade} درجة
+              </span>
             </p>
           </div>
         </header>

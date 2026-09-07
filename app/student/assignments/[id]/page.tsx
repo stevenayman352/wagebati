@@ -41,7 +41,7 @@ export default async function StudentAssignmentPage({ params }: { params: Promis
     supabase
       .from("conversations")
       .select(
-        "id, assignment_id, status, needs_revision, closed_by, closed_at, grades(grade), assignment:assignments!inner(title, instructions, due_at, max_grade, status)"
+        "id, assignment_id, status, closed_by, closed_at, grades(grade), assignment:assignments!inner(title, instructions, due_at, max_grade, status)"
       )
       .eq("id", id)
       .eq("student_id", profile.id)
@@ -65,7 +65,6 @@ export default async function StudentAssignmentPage({ params }: { params: Promis
     id: string;
     assignment_id: string;
     status: string;
-    needs_revision: boolean;
     closed_by: string | null;
     closed_at: string | null;
     grades?: { grade: number } | null;
@@ -123,7 +122,6 @@ export default async function StudentAssignmentPage({ params }: { params: Promis
   const statusKey = computeAssignmentStatus({
     role: "student",
     status: conv.status,
-    needsRevision: conv.needs_revision,
     closedBy: conv.closed_by,
     hasGrade: grade !== null,
     hasSubmission: submissions.length > 0,

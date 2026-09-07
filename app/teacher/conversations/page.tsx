@@ -35,7 +35,7 @@ export default async function TeacherConversationsPage({
   let query = supabase
     .from("conversations")
     .select(
-      "id, status, needs_revision, closed_by, last_message_at, student:profiles!conversations_student_id_fkey(full_name, code), assignment:assignments!inner(title, id, due_at, classes!inner(name, id))"
+      "id, status, closed_by, last_message_at, student:profiles!conversations_student_id_fkey(full_name, code), assignment:assignments!inner(title, id, due_at, classes!inner(name, id))"
     )
     .order("last_message_at", { ascending: false });
 
@@ -64,7 +64,6 @@ export default async function TeacherConversationsPage({
   }) as unknown as {
     id: string;
     status: string;
-    needs_revision: boolean;
     closed_by: string | null;
     last_message_at: string | null;
     student?: { full_name: string; code: string } | null;
@@ -102,7 +101,6 @@ export default async function TeacherConversationsPage({
       computeAssignmentStatus({
         role: "teacher",
         status: c.status,
-        needsRevision: c.needs_revision,
         closedBy: c.closed_by,
         hasGrade: graded.has(c.id),
         hasSubmission: anySubmitted.has(c.id),

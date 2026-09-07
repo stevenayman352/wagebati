@@ -3,31 +3,25 @@ import { statusLabel, toRow, buildXlsxBuffer } from "@/lib/export";
 
 describe("statusLabel", () => {
   it("maps closed to مكتمل", () => {
-    expect(statusLabel("closed", false, true)).toBe("مكتمل");
-  });
-
-  it("maps needs_revision to تحتاج مراجعة regardless of submissions", () => {
-    expect(statusLabel("active", true, true)).toBe("تحتاج مراجعة");
-    expect(statusLabel("active", true, false)).toBe("تحتاج مراجعة");
+    expect(statusLabel("closed", true)).toBe("مكتمل");
   });
 
   it("maps no-submission to بانتظار الطالب", () => {
-    expect(statusLabel("active", false, false)).toBe("بانتظار الطالب");
+    expect(statusLabel("active", false)).toBe("بانتظار الطالب");
   });
 
   it("maps active with submission to قيد المراجعة", () => {
-    expect(statusLabel("active", false, true)).toBe("قيد المراجعة");
+    expect(statusLabel("active", true)).toBe("قيد المراجعة");
   });
 
   it("falls back to raw status for unknown values", () => {
-    expect(statusLabel("weird", false, true)).toBe("weird");
+    expect(statusLabel("weird", true)).toBe("weird");
   });
 });
 
 describe("toRow", () => {
   const base = {
-    status: "active",
-    needs_revision: false
+    status: "active"
   };
 
   it("builds a full row with grade and comment", () => {
@@ -147,6 +141,24 @@ describe("buildXlsxBuffer", () => {
     expect(String(sheet["C2"].v)).toContain("(من 25)");
     expect(String(sheet["D2"].v)).toContain("(من 30)");
     expect(String(sheet["E2"].v)).toContain("مجموع درجات الواجبات");
+    expect(String(sheet["E2"].v)).toContain("(من 55)");
+  });
+
+  it("keeps long homework names fully visible with their max grade in brackets", async () => {
+    const title = "واجب في مادة اللغة العربية للفصل الدراسي الأول";
+    const rows = [
+      { studentName: "أحمد", studentCode: "1111", className: "الصف السادس", assignment: title, maxGrade: "25", status: "مكتمل", grade: "20", comment: "", dates: "" },
+      { studentName: "أحمد", studentCode: "1111", className: "الصف السادس", assignment: "واجب ب", maxGrade: "30", status: "مكتمل", grade: "30", comment: "", dates: "" }
+    ];
+    const buf = await buildXlsxBuffer(rows, "الصف السادس");
+    const { read } = await import("xlsx");
+    const wb = read(buf, { type: "array" });
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+
+    const header = String(sheet["C2"].v);
+    const name = header.split("\n").filter(Boolean).slice(0, -1).join(" ").trim();
+    expect(name).toBe(title);
+    expect(header).toContain("(من 25)");
     expect(String(sheet["E2"].v)).toContain("(من 55)");
   });
 

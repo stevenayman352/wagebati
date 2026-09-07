@@ -1,4 +1,4 @@
-import { CheckCircle2, Clock3, RefreshCw, XCircle } from "lucide-react";
+import { CheckCircle2, Clock3, XCircle } from "lucide-react";
 import { STATUS_LABEL } from "@/lib/assignment-status";
 import { cn } from "@/lib/utils";
 
@@ -11,7 +11,6 @@ const VISUAL: Record<
   awaiting_grading: { Icon: Clock3, cls: "bg-warning/15 text-warning-foreground" },
   overdue_not_submitted: { Icon: XCircle, cls: "bg-destructive/10 text-destructive" },
   graded: { Icon: CheckCircle2, cls: "bg-success/12 text-success" },
-  needs_revision: { Icon: RefreshCw, cls: "bg-warning/15 text-warning-foreground" },
   completed: { Icon: CheckCircle2, cls: "bg-secondary text-secondary-foreground" },
   submitted: { Icon: CheckCircle2, cls: "bg-success/12 text-success" },
   missed: { Icon: XCircle, cls: "bg-destructive/10 text-destructive" }

@@ -19,7 +19,6 @@ import { Home, Mail, Hash } from "lucide-react";
 type Row = {
   id: string;
   status: string;
-  needs_revision: boolean;
   closed_by: string | null;
   closed_at: string | null;
   grades?: { grade: number } | null;
@@ -38,7 +37,6 @@ const GROUP_ACCENT: Record<StudentStatusKey, string> = {
   under_review: "text-primary bg-primary/10 border-primary/20",
   submitted: "text-success bg-success/12 border-success/20",
   missed: "text-destructive bg-destructive/10 border-destructive/20",
-  needs_revision: "text-warning-foreground bg-warning/15 border-warning/25",
   completed: "text-foreground/90 bg-secondary border-foreground/20"
 };
 
@@ -47,7 +45,6 @@ const STATUS_TITLES = {
   under_review: STATUS_LABEL.under_review,
   submitted: STATUS_LABEL.submitted,
   missed: STATUS_LABEL.missed,
-  needs_revision: STATUS_LABEL.needs_revision,
   completed: STATUS_LABEL.completed
 } as const;
 
@@ -64,7 +61,7 @@ export default async function StudentPage({
     supabase
       .from("conversations")
       .select(
-        "id, status, needs_revision, closed_by, closed_at, grades(grade), submissions(count), assignment:assignments!inner(title, due_at, max_grade, status, classes!inner(name))"
+        "id, status, closed_by, closed_at, grades(grade), submissions(count), assignment:assignments!inner(title, due_at, max_grade, status, classes!inner(name))"
       )
       .eq("student_id", profile.id)
       .order("created_at", { ascending: false }),
@@ -126,7 +123,6 @@ export default async function StudentPage({
       computeAssignmentStatus({
         role: "student",
         status: r.status,
-        needsRevision: r.needs_revision,
         closedBy: r.closed_by,
         hasGrade: grade !== undefined && grade !== null,
         hasSubmission: (r.submissions?.[0]?.count ?? 0) > 0,
@@ -149,7 +145,7 @@ export default async function StudentPage({
 
   const actionables = rows.filter((r) => {
     const k = statusOf.get(r.id);
-    return k === "not_submitted" || k === "under_review" || k === "needs_revision";
+    return k === "not_submitted" || k === "under_review";
   }).length;
 
   const firstName = (profile.full_name ?? "").trim().split(/\s+/).slice(0, 2).join(" ");

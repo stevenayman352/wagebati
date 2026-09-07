@@ -4,7 +4,6 @@ export type TeacherStatusKey =
   | "awaiting_grading"
   | "overdue_not_submitted"
   | "graded"
-  | "needs_revision"
   | "completed";
 
 export type StudentStatusKey =
@@ -12,7 +11,6 @@ export type StudentStatusKey =
   | "under_review"
   | "submitted"
   | "missed"
-  | "needs_revision"
   | "completed";
 
 export type AssignmentRole = "teacher" | "student";
@@ -20,7 +18,6 @@ export type AssignmentRole = "teacher" | "student";
 export type AssignmentStatusInput = {
   role: AssignmentRole;
   status: string;
-  needsRevision?: boolean;
   closedBy?: string | null;
   hasGrade?: boolean;
   hasSubmission?: boolean;
@@ -42,11 +39,8 @@ export function computeAssignmentStatus(
   const duePassed =
     input.dueAt != null && new Date(input.dueAt).getTime() < input.nowMs;
   const closed = input.status === "closed";
-  const needsRevision = Boolean(input.needsRevision) && !closed;
   const teacherFinishedClose =
     closed && (Boolean(input.hasGrade) || input.closedBy != null);
-
-  if (needsRevision) return "needs_revision";
 
   if (closed) {
     if (teacherFinishedClose) return "completed";
@@ -71,7 +65,6 @@ export const STATUS_LABEL: Record<string, string> = {
   awaiting_grading: "في انتظار التقييم",
   overdue_not_submitted: "لم يتم تسليم الواجب",
   graded: "تم التقييم",
-  needs_revision: "مطلوب تعديل",
   completed: "مكتمل",
   submitted: "تم التسليم",
   missed: "فات موعده"
@@ -83,7 +76,6 @@ export const TEACHER_STATUSES: TeacherStatusKey[] = [
   "awaiting_grading",
   "overdue_not_submitted",
   "graded",
-  "needs_revision",
   "completed"
 ];
 
@@ -92,7 +84,6 @@ export const STUDENT_STATUSES: StudentStatusKey[] = [
   "under_review",
   "submitted",
   "missed",
-  "needs_revision",
   "completed"
 ];
 

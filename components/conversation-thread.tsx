@@ -26,7 +26,7 @@ export type ThreadMessage = {
 
 export function formatTime(value: string) {
   const d = new Date(value);
-  return d.toLocaleString("ar", { hour: "2-digit", minute: "2-digit", hour12: false });
+  return d.toLocaleString("ar", { hour: "numeric", minute: "2-digit", hour12: true });
 }
 
 export function quotePreview(m: Pick<ThreadMessage, "kind" | "body">): string {

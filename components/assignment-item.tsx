@@ -7,7 +7,6 @@ import { cn } from "@/lib/utils";
 type Row = {
   id: string;
   status: string;
-  needs_revision: boolean;
   closed_at: string | null;
   grades?: { grade: number } | null;
   submissions?: { count: number }[] | null;

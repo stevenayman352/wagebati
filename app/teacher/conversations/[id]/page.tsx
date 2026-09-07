@@ -23,7 +23,7 @@ export default async function TeacherConversationPage({ params }: { params: Prom
   const { data: conversation } = await supabase
     .from("conversations")
     .select(
-      "id, status, needs_revision, closed_by, closed_at, grades(grade), submissions(count), student:profiles!conversations_student_id_fkey(full_name, code), assignment:assignments!inner(title, due_at, max_grade)"
+      "id, status, closed_by, closed_at, grades(grade), submissions(count), student:profiles!conversations_student_id_fkey(full_name, code), assignment:assignments!inner(title, due_at, max_grade)"
     )
     .eq("id", id)
     .single();
@@ -32,7 +32,6 @@ export default async function TeacherConversationPage({ params }: { params: Prom
   const conv = conversation as unknown as {
     id: string;
     status: string;
-    needs_revision: boolean;
     closed_by: string | null;
     closed_at: string | null;
     grades?: { grade: number } | null;
@@ -70,7 +69,6 @@ export default async function TeacherConversationPage({ params }: { params: Prom
   const statusKey = computeAssignmentStatus({
     role: "teacher",
     status: conv.status,
-    needsRevision: conv.needs_revision,
     closedBy: conv.closed_by,
     hasGrade: grade !== null,
     hasSubmission: (conv.submissions?.[0]?.count ?? 0) > 0,

@@ -23,7 +23,7 @@ import {
   TEACHER_STATUSES,
   type TeacherStatusKey
 } from "@/lib/assignment-status";
-import { CheckCircle2, Plus, Users, FileText, Paperclip, Mail, Hash, ShieldCheck, ClipboardCheck, Clock3, XCircle, RefreshCw } from "lucide-react";
+import { CheckCircle2, Plus, Users, FileText, Paperclip, Mail, Hash, ShieldCheck, ClipboardCheck, Clock3, XCircle } from "lucide-react";
 
 type Row = {
   id: string;
@@ -103,7 +103,7 @@ export default async function TeacherPage({
       .eq("is_read", false),
     supabase
       .from("conversations")
-      .select("id, status, needs_revision, closed_by, assignment:assignments!inner(due_at, class_id)"),
+      .select("id, status, closed_by, assignment:assignments!inner(due_at, class_id)"),
     supabase.from("class_students").select("class_id, student_id")
   ]);
 
@@ -164,7 +164,6 @@ export default async function TeacherPage({
     const key = computeAssignmentStatus({
       role: "teacher",
       status: c.status,
-      needsRevision: c.needs_revision,
       closedBy: c.closed_by,
       hasGrade: gradedIds.has(c.id),
       hasSubmission: submittedIds.has(c.id),
@@ -185,7 +184,6 @@ export default async function TeacherPage({
     awaiting_grading: "bg-warning/15 text-warning-foreground",
     overdue_not_submitted: "bg-destructive/10 text-destructive",
     graded: "bg-success/12 text-success",
-    needs_revision: "bg-warning/15 text-warning-foreground",
     completed: "bg-secondary text-secondary-foreground"
   };
   const statusCardIcon: Record<TeacherStatusKey, typeof ClipboardCheck> = {
@@ -194,7 +192,6 @@ export default async function TeacherPage({
     awaiting_grading: ClipboardCheck,
     overdue_not_submitted: XCircle,
     graded: CheckCircle2,
-    needs_revision: RefreshCw,
     completed: CheckCircle2
   };
 

@@ -53,12 +53,6 @@ describe("computeAssignmentStatus (teacher)", () => {
     ).toBe("awaiting_grading");
   });
 
-  it("needs revision while active -> needs_revision", () => {
-    expect(
-      computeAssignmentStatus(teacher({ dueAt: FUTURE, needsRevision: true, hasSubmission: true }))
-    ).toBe("needs_revision");
-  });
-
   it("closed with grade -> completed", () => {
     expect(
       computeAssignmentStatus(teacher({ status: "closed", closedBy: "teacher-1", hasGrade: true }))
@@ -104,12 +98,6 @@ describe("computeAssignmentStatus (student)", () => {
 
   it("after due, no activity -> missed", () => {
     expect(computeAssignmentStatus(student({ dueAt: PAST }))).toBe("missed");
-  });
-
-  it("needs revision while active -> needs_revision", () => {
-    expect(
-      computeAssignmentStatus(student({ dueAt: FUTURE, needsRevision: true, hasSubmission: true }))
-    ).toBe("needs_revision");
   });
 
   it("closed by teacher -> completed", () => {

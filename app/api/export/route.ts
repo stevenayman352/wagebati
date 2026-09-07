@@ -119,7 +119,7 @@ async function classRows(supabase: DB, classId: string, className: string) {
   const { data, error } = await supabase
     .from("conversations")
     .select(
-      "id, status, needs_revision, updated_at, " +
+      "id, status, updated_at, " +
         "grade_row:grades!grades_conversation_id_fkey(grade, comment), " +
         "submissions:submissions!submissions_conversation_id_fkey(attempt_number, submitted_at), " +
         "student:profiles!conversations_student_id_fkey(full_name, code), " +
@@ -136,7 +136,7 @@ async function studentRows(supabase: DB, studentId: string, className: string) {
   const { data, error } = await supabase
     .from("conversations")
     .select(
-      "id, status, needs_revision, updated_at, " +
+      "id, status, updated_at, " +
         "grade_row:grades!grades_conversation_id_fkey(grade, comment), " +
         "submissions:submissions!submissions_conversation_id_fkey(attempt_number, submitted_at), " +
         "assignment:assignments(title, max_grade)"

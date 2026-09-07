@@ -98,12 +98,12 @@ export function SplashScreen() {
         </div>
 
         {/* Cycling status text */}
-        <div className="relative mt-4 h-6">
+        <div className="relative mt-4 grid h-6 place-items-center">
           {PHRASES.map((phrase, i) => (
             <p
               key={phrase}
               className={cn(
-                "absolute inset-x-0 text-xs font-semibold text-muted-foreground transition-opacity duration-500",
+                "col-start-1 row-start-1 whitespace-nowrap text-xs font-semibold text-muted-foreground transition-opacity duration-500",
                 i === step ? "opacity-100" : "opacity-0"
               )}
             >

@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { PageShell } from "@/components/page-shell";
 import { AppNav } from "@/components/app-nav";
-import { ArrowLeft, GraduationCap, ChevronUp, FileText, RefreshCw, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, GraduationCap, ChevronUp, FileText, CheckCircle2 } from "lucide-react";
 
 function fmt(value: string | null) {
   if (!value) return "";
@@ -30,7 +30,7 @@ export default async function TeacherStudentPage({
     supabase
       .from("conversations")
       .select(
-        "id, status, needs_revision, last_message_at, grades(grade, comment), assignment:assignments!inner(title, max_grade, class_id)"
+        "id, status, last_message_at, grades(grade, comment), assignment:assignments!inner(title, max_grade, class_id)"
       )
       .eq("student_id", studentId)
       .order("updated_at", { ascending: false })
@@ -49,7 +49,6 @@ export default async function TeacherStudentPage({
   }) as unknown as {
     id: string;
     status: string;
-    needs_revision: boolean;
     last_message_at: string | null;
     grades?: { grade: number; comment: string | null } | null;
     assignment?: { title: string; max_grade: number; class_id?: string } | null;
@@ -87,7 +86,6 @@ export default async function TeacherStudentPage({
 
         <div className="grid gap-2">
           {rows.map((c) => {
-            const isRevision = c.needs_revision && c.status === "active";
             return (
               <Link
                 key={c.id}
@@ -96,17 +94,16 @@ export default async function TeacherStudentPage({
               >
                 <span
                   className={`flex size-10 shrink-0 items-center justify-center rounded-xl ${
-                    isRevision ? "bg-warning/15 text-warning" : c.status === "closed" ? "bg-success/12 text-success" : "bg-primary/10 text-primary"
+                    c.status === "closed" ? "bg-success/12 text-success" : "bg-primary/10 text-primary"
                   }`}
                 >
-                  {isRevision ? <RefreshCw className="size-4" /> : c.status === "closed" ? <CheckCircle2 className="size-4" /> : <FileText className="size-4" />}
+                  {c.status === "closed" ? <CheckCircle2 className="size-4" /> : <FileText className="size-4" />}
                 </span>
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-base font-bold">{c.assignment?.title}</div>
                   <div className="mt-0.5 text-xs text-muted-foreground">{fmt(c.last_message_at)}</div>
                 </div>
                 <div className="flex shrink-0 flex-wrap items-center gap-1.5">
-                  {isRevision ? <Badge variant="warning">مراجعة</Badge> : null}
                   {c.status === "closed" ? <Badge variant="secondary">مكتمل</Badge> : <Badge variant="success">جارٍ</Badge>}
                   {c.grades?.grade !== undefined && c.grades?.grade !== null ? (
                     <Badge variant="outline">

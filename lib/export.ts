@@ -19,13 +19,11 @@ export type ExportItem = {
   grade_row?: { grade?: number | null; comment?: string | null };
   submissions?: { attempt_number?: number; submitted_at?: string }[];
   status: string;
-  needs_revision: boolean;
   updated_at?: string;
 };
 
-export function statusLabel(status: string, needsRevision: boolean, hasSubmission: boolean) {
+export function statusLabel(status: string, hasSubmission: boolean) {
   if (status === "closed") return "مكتمل";
-  if (needsRevision) return "تحتاج مراجعة";
   if (!hasSubmission) return "بانتظار الطالب";
   if (status === "active") return "قيد المراجعة";
   return status;
@@ -44,7 +42,7 @@ export function toRow(row: ExportItem, className: string): Row {
     className,
     assignment: row.assignment?.title ?? "",
     maxGrade: row.assignment?.max_grade != null ? String(row.assignment.max_grade) : "",
-    status: statusLabel(row.status, row.needs_revision, hasSubmission),
+    status: statusLabel(row.status, hasSubmission),
     grade: grade?.grade != null ? String(grade.grade) : "",
     comment: grade?.comment ?? "",
     dates: [row.updated_at, lastSubmitted].filter(Boolean).join(" / ")
@@ -109,6 +107,9 @@ const P_GRID = "BFBFBF";
 const GRADE_HIGH = "E2EFDA"; // soft green tint
 const GRADE_MID = "FCE4D6"; // soft orange tint
 const GRADE_LOW = "F8CBAD"; // soft red tint
+const HW_COL_WIDTH = 28; // homework columns are as wide as the name column
+const HW_COL_CHARS = 18; // conservative Arabic chars/line so wrapped text never clips
+const HEADER_LINE_H = 14; // points per header text line
 
 function solid(fill: string): ExcelJS.Fill {
   return { type: "pattern", pattern: "solid", fgColor: { argb: `FF${fill}` } };
@@ -176,7 +177,7 @@ export async function buildXlsxBuffer(rows: Row[], className = ""): Promise<Arra
   const totalMax = homeworks.reduce((acc, title) => acc + maxOf(homeworkMax, title), 0);
 
   for (let i = 1; i <= lastColumn; i++) {
-    ws.getColumn(i).width = i === nameCol ? 28 : i === codeCol ? 14 : i === lastColumn ? 20 : 18;
+    ws.getColumn(i).width = i === nameCol ? 28 : i === codeCol ? 14 : i === lastColumn ? 20 : HW_COL_WIDTH;
   }
 
   // Row 1 — banner
@@ -192,14 +193,20 @@ export async function buildXlsxBuffer(rows: Row[], className = ""): Promise<Arra
 
   // Row 2 — headers
   const header = ws.getRow(2);
-  header.height = 42;
+  const headerLines = homeworks.reduce((max, title) => {
+    const wrappedLines = wrapLongTitle(title, HW_COL_CHARS)
+      .split("\n")
+      .reduce((acc, line) => acc + Math.max(1, Math.ceil(line.length / HW_COL_CHARS)), 0);
+    return Math.max(max, wrappedLines + 1); // +1 for the bracketed max grade line
+  }, 0);
+  header.height = Math.max(42, headerLines * HEADER_LINE_H + 8);
   Object.assign(header.getCell(nameCol), { value: "الاسم", ...headerStyle(P_HEADER, "FFFFFF") });
   Object.assign(header.getCell(codeCol), { value: "الكود", ...headerStyle(P_CODE, "1F3864") });
 
   homeworks.forEach((title, hIndex) => {
     const col = header.getCell(firstHomeworkCol + hIndex);
     Object.assign(col, {
-      value: `${wrapLongTitle(title, 16)}\n(من ${maxOf(homeworkMax, title)})`,
+      value: `${wrapLongTitle(title, HW_COL_CHARS)}\n(من ${maxOf(homeworkMax, title)})`,
       ...headerStyle(P_HEADER, "FFFFFF"),
       alignment: { horizontal: "center", vertical: "middle", wrapText: true }
     });
