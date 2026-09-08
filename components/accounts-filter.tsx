@@ -296,7 +296,7 @@ export function AccountsFilter({
             </span>
             <span className="inline-flex items-center gap-1.5 font-mono text-sm">
               {showPasswords[u.id] ? (
-                <span className="text-foreground">{u.initial_password}</span>
+                <span className="text-foreground" dir="ltr">{u.initial_password}</span>
               ) : (
                 <span className="text-muted-foreground">{"●".repeat(u.initial_password.length)}</span>
               )}
