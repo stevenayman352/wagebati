@@ -4,6 +4,7 @@ import { memo, useCallback, useEffect, useImperativeHandle, useMemo, useRef, use
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { markConversationReadAction } from "@/app/actions/messages";
 import { MediaViewer } from "@/components/media-viewer";
+import { VoiceMessagePlayer } from "@/components/voice-message-player";
 import { cn } from "@/lib/utils";
 import { Trophy } from "lucide-react";
 
@@ -48,7 +49,6 @@ const MessageBubble = memo(function MessageBubble({
   mine,
   mineId,
   senderName,
-  prevMine,
   replied,
   url,
   onOpenViewer,
@@ -58,7 +58,6 @@ const MessageBubble = memo(function MessageBubble({
   mine: boolean;
   mineId: string;
   senderName: string;
-  prevMine: boolean;
   replied: ThreadMessage | undefined;
   url: string | null | undefined;
   onOpenViewer: (kind: "image" | "video", src: string, fileName: string) => void;
@@ -93,8 +92,7 @@ const MessageBubble = memo(function MessageBubble({
       {!mine ? (
         <span
           className={cn(
-            "flex size-7 shrink-0 items-center justify-center rounded-full bg-primary/12 text-[0.65rem] font-bold text-primary",
-            prevMine ? "" : "mb-6"
+            "flex size-7 shrink-0 items-center justify-center rounded-full bg-primary/12 text-[0.65rem] font-bold text-primary"
           )}
         >
           {m.sender_role === "teacher" ? "م" : "ط"}
@@ -102,7 +100,7 @@ const MessageBubble = memo(function MessageBubble({
       ) : null}
       <div
         className={cn(
-          "max-w-[85%] rounded-[18px] border px-3.5 py-2 text-sm shadow-card animate-slide-up",
+          "max-w-[85%] rounded-[18px] border px-3 py-1.5 text-sm shadow-card animate-slide-up",
           m.kind === "video" ? "w-[min(92%,26rem)]" : "",
           mine
             ? "rounded-bl-[6px] border-transparent bg-primary text-primary-foreground"
@@ -141,7 +139,7 @@ const MessageBubble = memo(function MessageBubble({
           </button>
         ) : null}
         {m.kind === "voice" && m.storage_path && !m.deleted_from_storage_at ? (
-          <audio controls src={url ?? ""} className="h-10 w-64 max-w-full" preload="none" />
+          <VoiceMessagePlayer src={url ?? ""} mine={mine} />
         ) : null}
         {m.kind === "video" && m.storage_path && !m.deleted_from_storage_at ? (
           <VideoThumbnail url={url} mine={mine} m={m} onOpenViewer={onOpenViewer} />
@@ -322,7 +320,7 @@ export const ConversationThread = forwardRef<ConversationThreadHandle, {
   return (
     <div
       className={cn(
-        "grid gap-2.5 overflow-y-auto rounded-[var(--radius-lg)] border border-border/70 bg-muted/40 p-3.5",
+        "grid gap-2 overflow-y-auto rounded-[var(--radius-lg)] border border-border/70 bg-muted/40 p-3.5",
         fill ? "min-h-0 flex-1" : "max-h-[65vh] md:max-h-[72vh]"
       )}
       style={{
@@ -330,10 +328,9 @@ export const ConversationThread = forwardRef<ConversationThreadHandle, {
         backgroundSize: "18px 18px"
       }}
     >
-      {messages.map((m, i) => {
+      {messages.map((m) => {
         const mine = m.sender_id === mineId;
         const senderName = nameFor(m, mine);
-        const prevMine = i > 0 ? messages[i - 1].sender_id === mineId : false;
         const replied = m.reply_to_message_id ? replyMap.get(m.reply_to_message_id) : undefined;
         return (
           <MessageBubble
@@ -342,7 +339,6 @@ export const ConversationThread = forwardRef<ConversationThreadHandle, {
             mine={mine}
             mineId={mineId}
             senderName={senderName}
-            prevMine={prevMine}
             replied={replied}
             url={urls[m.id]}
             onOpenViewer={handleOpenViewer}

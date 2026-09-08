@@ -9,7 +9,8 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:db": "node --env-file=.env scripts/db-integration.ts"
+    "test:db": "node --env-file=.env scripts/db-integration.ts",
+    "deploy:preview": "next build && node scripts/deploy-preview.mjs"
   },
   "dependencies": {
     "@breezystack/lamejs": "^1.2.7",

@@ -1,5 +1,11 @@
 import { z } from "zod";
 
+export const codeSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .regex(/^[a-z0-9]{4,24}$/);
+
 export const accountSchema = z.object({
   fullName: z.string().trim().min(2).max(120),
   password: z.string().min(8).max(128),

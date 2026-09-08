@@ -7,6 +7,7 @@ import {
   gradeSchema,
   assignmentSchema,
   accountSchema,
+  codeSchema,
   messageSchema,
   attachmentSchema
 } from "@/lib/validators";
@@ -237,6 +238,26 @@ describe("accountSchema", () => {
       role: "teacher"
     });
     expect(res.success).toBe(false);
+  });
+});
+
+describe("codeSchema", () => {
+  it("accepts a valid alphanumeric code", () => {
+    expect(codeSchema.safeParse("abc123").success).toBe(true);
+    expect(codeSchema.safeParse("123456").success).toBe(true);
+    expect(codeSchema.safeParse("aaaa").success).toBe(true);
+  });
+
+  it("lowercases uppercase letters", () => {
+    expect(codeSchema.parse("ABC123")).toBe("abc123");
+  });
+
+  it("rejects empty, too-short, too-long, and non-alphanumeric codes", () => {
+    expect(codeSchema.safeParse("").success).toBe(false);
+    expect(codeSchema.safeParse("ab").success).toBe(false);
+    expect(codeSchema.safeParse("a".repeat(25)).success).toBe(false);
+    expect(codeSchema.safeParse("!!bad code!!").success).toBe(false);
+    expect(codeSchema.safeParse("ab c12").success).toBe(false);
   });
 });
 

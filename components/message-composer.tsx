@@ -269,13 +269,13 @@ export function MessageComposer({
         </div>
       ) : null}
 
-      <div className="flex items-center gap-1 rounded-full border border-border/70 bg-background p-1.5 shadow-card transition-shadow focus-within:border-primary/50 focus-within:ring-4 focus-within:ring-primary/15">
+      <div className="flex items-center gap-1 rounded-full border border-border/70 bg-background p-1 shadow-card transition-shadow focus-within:border-primary/50 focus-within:ring-4 focus-within:ring-primary/15">
         <div className="relative">
           <Button
             type="button"
             variant="ghost"
             size="icon"
-            className="size-9 shrink-0 rounded-full text-muted-foreground hover:text-primary"
+            className="size-8 shrink-0 rounded-full text-muted-foreground hover:text-primary"
             disabled={disabled || uploading || sendingMedia || sendingVoice}
             onClick={() => setMenuOpen((v) => !v)}
             aria-label="إرفاق فيديو أو صورة"
@@ -332,7 +332,7 @@ export function MessageComposer({
             name="body"
             placeholder="اكتب رسالة..."
             disabled={disabled || sending || sendingVoice || sendingMedia}
-            className="h-10 border-0 bg-transparent px-2 shadow-none focus-visible:ring-0"
+            className="h-8 border-0 bg-transparent px-2 shadow-none focus-visible:ring-0"
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
@@ -344,7 +344,7 @@ export function MessageComposer({
             type="button"
             variant="ghost"
             size="icon"
-            className="size-9 shrink-0 rounded-full text-muted-foreground hover:text-primary"
+            className="size-8 shrink-0 rounded-full text-muted-foreground hover:text-primary"
             disabled={disabled || anyBusy}
             onClick={() => setRecorderOpen((v) => !v)}
             aria-label="تسجيل رسالة صوتية"
@@ -354,7 +354,7 @@ export function MessageComposer({
           <Button
             type={staged ? "button" : "submit"}
             size="icon"
-            className="size-9 shrink-0 rounded-full"
+            className="size-8 shrink-0 rounded-full"
             disabled={disabled || sending || sendingVoice || sendingMedia}
             onClick={staged ? () => void handleSend() : undefined}
             aria-label="إرسال"

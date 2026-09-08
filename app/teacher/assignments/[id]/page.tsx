@@ -14,6 +14,7 @@ import {
   type TeacherStatusKey
 } from "@/lib/assignment-status";
 import { StatusPill, statusVisual } from "@/components/status-chip";
+import { ConfirmCloseAssignment } from "@/components/confirm-close-assignment";
 
 type ConversationRow = {
   id: string;
@@ -108,6 +109,12 @@ export default async function TeacherAssignmentPage({ params }: { params: Promis
               الواجبات
             </Link>
           </Button>
+          {assignment.status === "published" ? (
+            <ConfirmCloseAssignment
+              assignmentId={assignment.id}
+              disabled={withStatus.filter((c) => c.status === "active").length === 0}
+            />
+          ) : null}
         </div>
 
         <header className="mb-6 flex items-center gap-3">

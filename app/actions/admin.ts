@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { accountSchema, classSchema, uuidSchema } from "@/lib/validators";
+import { accountSchema, classSchema, codeSchema, uuidSchema } from "@/lib/validators";
 import { accountEmailForCode, generateAccountCode } from "@/lib/accounts";
 import { MAX_IMPORT_FILE_BYTES, parseImportFile, validateImportRows } from "@/lib/import-accounts";
 import type { ActionState, ImportIssue } from "@/lib/types";
@@ -298,6 +298,49 @@ export async function resetPasswordAction(_: ActionState, formData: FormData): P
 
   revalidatePath("/admin");
   return { ok: true, message: "تمت إعادة تعيين كلمة المرور وسيُطلب تغييرها عند الدخول." };
+}
+
+export async function updateCodeAction(_: ActionState, formData: FormData): Promise<ActionState> {
+  await requireRole(["admin"]);
+  const userId = uuidSchema.safeParse(formData.get("userId"));
+  const code = codeSchema.safeParse(formData.get("code"));
+
+  if (!userId.success || !code.success) {
+    return { ok: false, message: "تحقق من الكود (٤-٢٤ حرفًا إنجليزيًا أو أرقامًا فقط)." };
+  }
+
+  const admin = createSupabaseAdminClient();
+  const { data: target, error: targetError } = await admin
+    .from("profiles")
+    .select("id, role, code, email")
+    .eq("id", userId.data)
+    .single();
+
+  if (targetError || !target) return { ok: false, message: "الحساب غير موجود." };
+  if (target.role !== "student") return { ok: false, message: "يمكن تعديل كود الطلاب فقط." };
+  if (target.code === code.data) return { ok: false, message: "هذا هو الكود الحالي بالفعل." };
+
+  const { count, error: dupError } = await admin
+    .from("profiles")
+    .select("id", { count: "exact", head: true })
+    .eq("code", code.data)
+    .neq("id", userId.data);
+  if (dupError) return { ok: false, message: dupError.message };
+  if ((count ?? 0) > 0) return { ok: false, message: "الكود مستخدم بالفعل." };
+
+  const email = accountEmailForCode(code.data);
+  const { error: authError } = await admin.auth.admin.updateUserById(userId.data, { email });
+  if (authError) return { ok: false, message: authError.message };
+
+  const { error: profileError } = await admin
+    .from("profiles")
+    .update({ code: code.data, email })
+    .eq("id", userId.data);
+  if (profileError) return { ok: false, message: profileError.message };
+
+  revalidatePath("/admin");
+  revalidatePath("/admin/reset-password");
+  return { ok: true, message: `تم تحديث كود الطالب: ${code.data}` };
 }
 
 export async function deleteAccountAction(_: ActionState, formData: FormData): Promise<ActionState> {

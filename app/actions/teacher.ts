@@ -351,6 +351,68 @@ export async function closeConversationAction(_: ActionState, formData: FormData
   return { ok: true, message: "تم إنهاء المحادثة." };
 }
 
+export async function closeAssignmentAction(_: ActionState, formData: FormData): Promise<ActionState> {
+  const profile = await requireRole(["teacher", "admin"]);
+  const parsed = uuidFormSchema.safeParse({ id: formData.get("assignmentId") });
+  if (!parsed.success) return { ok: false, message: "طلب غير صالح." };
+
+  const supabase = await createSupabaseServerClient();
+  const { data: assignment } = await supabase
+    .from("assignments")
+    .select("id, title, class_id")
+    .eq("id", parsed.data.id)
+    .single();
+  if (!assignment) return { ok: false, message: "الواجب غير موجود." };
+
+  if (profile.role !== "admin") {
+    const { data: taught } = await supabase
+      .from("class_teachers")
+      .select("class_id")
+      .eq("class_id", assignment.class_id)
+      .eq("teacher_id", profile.id);
+    if (!(taught ?? []).length) return { ok: false, message: "غير مصرح لك بهذا الواجب." };
+  }
+
+  const { data: active } = await supabase
+    .from("conversations")
+    .select("id, student_id")
+    .eq("assignment_id", parsed.data.id)
+    .eq("status", "active");
+  if (!active || active.length === 0) return { ok: false, message: "لا توجد محادثات نشطة لهذا الواجب." };
+
+  const nowIso = new Date().toISOString();
+  const { error: closeError } = await supabase
+    .from("conversations")
+    .update({ status: "closed", closed_at: nowIso, closed_by: null, needs_revision: false, updated_at: nowIso })
+    .eq("assignment_id", parsed.data.id)
+    .eq("status", "active");
+  if (closeError) return { ok: false, message: closeError.message };
+
+  const { error: dueError } = await supabase
+    .from("assignments")
+    .update({ due_at: nowIso })
+    .eq("id", parsed.data.id);
+  if (dueError) return { ok: false, message: dueError.message };
+
+  await supabase.from("notifications").insert(
+    active.map((c) => ({
+      user_id: c.student_id,
+      type: "closed",
+      title: "انتهى موعد الواجب",
+      body: `أغلق المدرس الواجب "${assignment.title}" ولن يمكنك إرسال رسائل أو تعديلات جديدة.`,
+      href: `/student/assignments/${c.id}`,
+      assignment_id: parsed.data.id,
+      conversation_id: c.id
+    }))
+  );
+
+  revalidatePath("/teacher");
+  revalidatePath("/teacher/assignments");
+  revalidatePath("/teacher/assignments/[id]");
+  revalidatePath("/teacher/conversations");
+  return { ok: true, message: `تم إنهاء الواجب وإغلاق الاستلام لـ ${active.length} محادثة.` };
+}
+
 export async function forceCloseOverdueAction(_: ActionState, _formData: FormData): Promise<ActionState> {
   await requireRole(["admin"]);
   const admin = createSupabaseAdminClient();
