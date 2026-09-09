@@ -1,4 +1,4 @@
-const CACHE_NAME = "wajebaty-v2";
+const CACHE_NAME = "wajebaty-v3";
 const ASSETS = ["/", "/login", "/manifest.webmanifest", "/image.png", "/icon-192.png", "/icon-512.png"];
 
 self.addEventListener("install", (event) => {

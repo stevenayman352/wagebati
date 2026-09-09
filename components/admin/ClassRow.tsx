@@ -39,12 +39,9 @@ export function ClassRow({ id, name, gradeLabel, students, teachers }: ClassRowP
       </div>
       <div className="flex gap-1.5">
         <Button asChild variant="outline" size="sm">
-          <a href={`/api/export?target=class&format=xlsx&id=${id}`} className="gap-1">
+          <a href={`/preview?target=class&format=xlsx&id=${id}`} className="gap-1">
             <Download className="size-3.5" /> إكسل
           </a>
-        </Button>
-        <Button asChild variant="outline" size="sm">
-          <a href={`/api/export?target=class&format=pdf&id=${id}`}>PDF</a>
         </Button>
 
         {!showConfirm ? (

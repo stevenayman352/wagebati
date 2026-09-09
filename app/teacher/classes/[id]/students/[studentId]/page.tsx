@@ -64,6 +64,12 @@ export default async function TeacherStudentPage({
               رجوع
             </Link>
           </Button>
+          <Button asChild variant="outline" size="sm">
+            <a href={`/preview?target=student&format=pdf&id=${studentId}`} className="gap-1.5">
+              <FileText className="size-3.5" />
+              ملف الطالب
+            </a>
+          </Button>
         </div>
 
         <header className="mb-6 flex items-center gap-3">

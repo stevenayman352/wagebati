@@ -56,13 +56,10 @@ export default async function TeacherClassPage({ params }: { params: Promise<{ i
           </Button>
           <div className="flex items-center gap-1.5">
             <Button asChild variant="outline" size="sm">
-              <a href={`/api/export?target=class&format=xlsx&id=${id}`} className="gap-1.5">
+              <a href={`/preview?target=class&format=xlsx&id=${id}`} className="gap-1.5">
                 <Download className="size-3.5" />
                 إكسل
               </a>
-            </Button>
-            <Button asChild variant="outline" size="sm">
-              <a href={`/api/export?target=class&format=pdf&id=${id}`}>PDF</a>
             </Button>
           </div>
         </div>

@@ -342,12 +342,12 @@ export function AccountsFilter({
           {!selectionMode && u.role === "student" ? (
             <>
               <Button asChild variant="ghost" size="sm">
-                <a href={`/api/export?target=student&format=xlsx&id=${u.id}`} className="gap-1.5" title="تصدير إكسل">
+                <a href={`/preview?target=student&format=xlsx&id=${u.id}`} className="gap-1.5" title="تصدير إكسل">
                   <Download className="size-3.5" /> إكسل
                 </a>
               </Button>
               <Button asChild variant="ghost" size="sm">
-                <a href={`/api/export?target=student&format=pdf&id=${u.id}`} title="تصدير PDF">PDF</a>
+                <a href={`/preview?target=student&format=pdf&id=${u.id}`} title="تصدير PDF">PDF</a>
               </Button>
             </>
           ) : null}
@@ -371,7 +371,6 @@ export function AccountsFilter({
           onChange={(e) => setQuery(e.target.value)}
           placeholder="ابحث بالاسم أو الكود..."
           className="h-10 pr-9 pl-3"
-          disabled={selectionMode}
         />
       </div>
 

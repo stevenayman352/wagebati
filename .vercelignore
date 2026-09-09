@@ -1,0 +1,7 @@
+**/*.pptx
+**/*.ppt
+node_modules
+.next
+.vercel
+*.log
+*.tsbuildinfo
