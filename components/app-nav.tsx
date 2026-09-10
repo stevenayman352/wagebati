@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { Suspense } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
-import { LayoutGrid, Bell, UserRound, Users, ClipboardList } from "lucide-react";
+import { LayoutGrid, Bell, UserRound, Users, ClipboardList, BarChart3 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type NavItem = { href: string; label: string; icon: typeof LayoutGrid };
@@ -18,6 +18,7 @@ const ROLE_ITEMS: Record<string, NavItem[]> = {
     { href: "/teacher", label: "الرئيسية", icon: LayoutGrid },
     { href: "/teacher/classes", label: "الفصول", icon: Users },
     { href: "/teacher/assignments", label: "الواجبات", icon: ClipboardList },
+    { href: "/teacher/statistics", label: "الإحصائيات", icon: BarChart3 },
     { href: "/notifications", label: "الإشعارات", icon: Bell },
     { href: "/teacher?tab=account", label: "الحساب", icon: UserRound }
   ]
@@ -50,17 +51,17 @@ function AppNavContent({ role }: { role: "student" | "teacher" }) {
               key={item.label}
               href={item.href}
               aria-current={active ? "page" : undefined}
-              className="group flex min-h-14 flex-1 flex-col items-center justify-center gap-1 px-1.5 transition-colors"
+              className="group flex min-h-12 flex-1 flex-col items-center justify-center gap-0.5 px-1 transition-colors md:min-h-14 md:gap-1 md:px-1.5"
             >
               <span
                 className={cn(
-                  "relative flex h-9 w-14 items-center justify-center rounded-2xl transition-all duration-200",
+                  "relative flex h-8 w-11 items-center justify-center rounded-2xl transition-all duration-200 md:h-9 md:w-14",
                   active ? "bg-primary/[0.12]" : "group-hover:bg-muted"
                 )}
               >
                 <Icon
                   className={cn(
-                    "size-[22px] transition-all duration-200",
+                    "size-5 transition-all duration-200 md:size-[22px]",
                     active ? "text-primary" : "text-muted-foreground group-hover:text-foreground"
                   )}
                 />
@@ -73,7 +74,7 @@ function AppNavContent({ role }: { role: "student" | "teacher" }) {
               </span>
               <span
                 className={cn(
-                  "text-[0.68rem] font-semibold leading-none transition-colors duration-200",
+                  "text-[0.6rem] font-semibold leading-none whitespace-nowrap transition-colors duration-200 md:text-[0.68rem]",
                   active ? "text-primary" : "text-muted-foreground"
                 )}
               >

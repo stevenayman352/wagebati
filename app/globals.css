@@ -111,6 +111,7 @@
   --radius-3xl: calc(var(--radius) * 2.1);
   --radius-4xl: calc(var(--radius) * 2.5);
   --animate-slide-up: slide-up 0.3s ease-out both;
+  --animate-page-in: page-in 0.4s ease-out both;
   --animate-press: press 0.2s ease-out;
   --animate-pop: pop 0.18s ease-out both;
   --animate-splash-halo: splash-halo 1.8s ease-out infinite;
@@ -156,6 +157,15 @@ body {
 }
 
 /* Micro-animations */
+@keyframes page-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 @keyframes slide-up {
   from {
     opacity: 0;

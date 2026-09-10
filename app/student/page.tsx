@@ -5,7 +5,6 @@ import { PageShell } from "@/components/page-shell";
 import { AssignmentItem } from "@/components/assignment-item";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { PushEnabler } from "@/components/push-enabler";
 import { NotificationGate } from "@/components/notification-gate";
 import { fetchStudentChatActivity } from "@/lib/assignment-activity";
 import {
@@ -155,7 +154,7 @@ export default async function StudentPage({
       <>
         <PageShell wide>
           {/* Header */}
-          <header className="mb-6 flex items-center justify-between gap-3">
+          <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <div className="flex size-11 items-center justify-center rounded-full bg-primary/12 text-lg font-extrabold text-primary">
                 {profile.full_name?.charAt(0) ?? "و"}
@@ -169,8 +168,6 @@ export default async function StudentPage({
               <NotificationBell userId={profile.id} initialUnread={unreadCount ?? 0} />
             </div>
           </header>
-
-          <PushEnabler />
 
           {/* Action-oriented summary */}
           <section className="relative mb-6 overflow-hidden rounded-[var(--radius-lg)] bg-primary p-5 text-primary-foreground shadow-raise">

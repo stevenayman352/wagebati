@@ -79,13 +79,14 @@ export function ConversationList({
               <span className="text-sm text-muted-foreground">({section.rows.length})</span>
             </div>
             <div className="grid gap-2">
-              {section.rows.map((c) => {
+              {section.rows.map((c, i) => {
                 const { Icon, cls } = statusVisual(c.statusKey);
                 return (
                   <Link
                     key={c.id}
                     href={c.href}
-                    className="group flex items-center gap-3.5 rounded-[var(--radius-lg)] border border-border/70 bg-card p-4 shadow-card transition-all hover:shadow-raise"
+                    style={{ animationDelay: `${i * 35}ms` }}
+                    className="animate-slide-up group flex items-center gap-3.5 rounded-[var(--radius-lg)] border border-border/70 bg-card p-4 shadow-card transition-all hover:shadow-raise"
                   >
                     <span
                       className={`flex size-11 shrink-0 items-center justify-center rounded-xl ${cls}`}

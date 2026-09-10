@@ -39,7 +39,7 @@ export function AdminLayout({
           </div>
         </header>
 
-        <main className="mx-auto max-w-5xl px-4 py-6 md:px-8">{children}</main>
+        <main className="animate-page-in mx-auto max-w-5xl px-4 py-6 md:px-8">{children}</main>
       </div>
     </div>
   );

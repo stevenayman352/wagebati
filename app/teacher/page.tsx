@@ -8,22 +8,19 @@ import { AppNav } from "@/components/app-nav";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  createAssignmentAction,
-  deleteAssignmentAction,
-  publishAssignmentAction
+  createAssignmentAction
 } from "@/app/actions/teacher";
 import { NotificationBell } from "@/components/notification-bell";
-import { PushEnabler } from "@/components/push-enabler";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { fetchStudentChatActivity } from "@/lib/assignment-activity";
 import {
   computeAssignmentStatus,
   STATUS_LABEL,
-  TEACHER_STATUSES,
   type TeacherStatusKey
 } from "@/lib/assignment-status";
-import { CheckCircle2, Plus, Users, FileText, Paperclip, Mail, Hash, ShieldCheck, ClipboardCheck, Clock3, XCircle } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { CheckCircle2, Plus, Users, FileText, Paperclip, Mail, Hash, ShieldCheck, ClipboardCheck, Clock3, XCircle, BarChart3 } from "lucide-react";
 
 type Row = {
   id: string;
@@ -115,9 +112,14 @@ export default async function TeacherPage({
     ? (ids: string[]) => ids.some((id) => (classIds as string[]).includes(id))
     : () => true;
 
+  // eslint-disable-next-line react-hooks/purity
+  const nowMs = Date.now();
+
   const conversations = (convRes.data ?? []).filter((c) => {
-    const a = c.assignment as unknown as { class_id?: string } | null;
-    return a?.class_id ? inScope([a.class_id]) : false;
+    const a = c.assignment as unknown as { class_id?: string; due_at?: string | null } | null;
+    if (!a?.class_id || !inScope([a.class_id])) return false;
+    if (!a.due_at || new Date(a.due_at).getTime() < nowMs) return false;
+    return true;
   });
   const conversationIds = conversations.map((c) => c.id as string);
 
@@ -150,14 +152,15 @@ export default async function TeacherPage({
 
   const rows = (assignmentsRes.data ?? []) as unknown as Row[];
 
-  const drafts = rows.filter((r) => r.status === "draft");
-  const published = rows.filter((r) => r.status === "published");
+  const activeRows = rows.filter((r) => {
+    if (r.status !== "published") return false;
+    if (!r.due_at) return false;
+    return new Date(r.due_at).getTime() >= nowMs;
+  });
 
   const submittedIds = new Set((subsRes.data ?? []).map((s) => s.conversation_id as string));
   const gradedIds = new Set((gradesRes.data ?? []).map((g) => g.conversation_id as string));
 
-  // eslint-disable-next-line react-hooks/purity
-  const nowMs = Date.now();
   const statusCounts = new Map<TeacherStatusKey, number>();
   for (const c of conversations) {
     const a = c.assignment as unknown as { due_at: string | null } | null;
@@ -178,6 +181,13 @@ export default async function TeacherPage({
   for (const e of enrollRes.data ?? []) {
     studentCounts.set(e.class_id as string, (studentCounts.get(e.class_id as string) ?? 0) + 1);
   }
+  const MAIN_STATUSES: TeacherStatusKey[] = [
+    "under_review",
+    "not_submitted",
+    "awaiting_grading",
+    "graded",
+    "completed"
+  ];
   const statusCardTone: Record<TeacherStatusKey, string> = {
     not_submitted: "bg-muted text-muted-foreground",
     under_review: "bg-primary/10 text-primary",
@@ -198,7 +208,7 @@ export default async function TeacherPage({
   return (
     <>
       <PageShell wide>
-        <header className="mb-6 flex items-center justify-between gap-3">
+        <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="mt-3 font-amiri text-3xl font-bold">أهلًا يا {profile.full_name?.trim().split(/\s+/).slice(0, 2).join(" ") ?? "مُدرّس"}</h1>
           </div>
@@ -207,28 +217,59 @@ export default async function TeacherPage({
           </div>
         </header>
 
-        <PushEnabler />
-
         {/* Status cards */}
-        <section className="mb-6 grid grid-cols-2 gap-2.5 md:grid-cols-3 xl:grid-cols-4">
-          {TEACHER_STATUSES.map((key) => {
-            const Icon = statusCardIcon[key];
-            return (
-              <Link
-                key={key}
-                href={`/teacher/conversations?status=${key}`}
-                className="group relative overflow-hidden rounded-2xl border border-border/70 bg-card p-4 shadow-card transition-all hover:-translate-y-0.5 hover:shadow-raise active:translate-y-0"
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <span className={`flex size-10 shrink-0 items-center justify-center rounded-xl transition-transform duration-200 group-hover:scale-105 ${statusCardTone[key]}`}>
-                    <Icon className="size-5" />
-                  </span>
-                  <span className="text-[1.7rem] font-extrabold leading-none">{statusCounts.get(key) ?? 0}</span>
-                </div>
-                <p className="mt-2.5 text-xs font-semibold text-muted-foreground">{STATUS_LABEL[key]}</p>
-              </Link>
-            );
-          })}
+        <section className="mb-6 rounded-[var(--radius-lg)] border border-border/70 bg-card p-4 shadow-card md:p-5">
+          <div className="mb-4 flex items-center gap-2.5">
+            <span className="flex size-8 items-center justify-center rounded-xl bg-primary/12">
+              <BarChart3 className="size-4 text-primary" />
+            </span>
+            <div>
+              <h2 className="text-[var(--text-h2)] font-bold">إحصائيات واجبات الأسبوع الحالي</h2>
+              <p className="text-xs text-muted-foreground">الواجبات النشطة فقط — الواجبات المنتهية في تبويب الإحصائيات</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2.5 md:grid-cols-3">
+            {MAIN_STATUSES.map((key, i) => {
+              const Icon = statusCardIcon[key];
+              const wide = key === "under_review";
+              return (
+                <Link
+                  key={key}
+                  href={`/teacher/conversations?status=${key}`}
+                  style={{ animationDelay: `${i * 45}ms` }}
+                  className={cn(
+                    "group relative overflow-hidden rounded-2xl border p-4 shadow-card transition-all animate-slide-up hover:-translate-y-0.5 hover:shadow-raise active:translate-y-0",
+                    wide
+                      ? "col-span-2 border-primary/25 bg-gradient-to-l from-primary/10 via-accent/5 to-card"
+                      : "border-border/70 bg-card"
+                  )}
+                >
+                  <div className={cn("flex items-center justify-between gap-2", wide && "mb-2")}>
+                    <span
+                      className={cn(
+                        "flex shrink-0 items-center justify-center rounded-xl transition-transform duration-200 group-hover:scale-105",
+                        statusCardTone[key],
+                        wide ? "size-12" : "size-10"
+                      )}
+                    >
+                      <Icon className={wide ? "size-6" : "size-5"} />
+                    </span>
+                    <span
+                      className={cn(
+                        "font-extrabold leading-none tabular-nums",
+                        wide ? "text-[2.5rem]" : "text-[1.7rem]"
+                      )}
+                    >
+                      {statusCounts.get(key) ?? 0}
+                    </span>
+                  </div>
+                  <p className={cn("font-semibold text-muted-foreground", wide ? "text-sm" : "mt-2.5 text-xs")}>
+                    {STATUS_LABEL[key]}
+                  </p>
+                </Link>
+              );
+            })}
+          </div>
         </section>
 
         <div className="grid gap-6 lg:grid-cols-3">
@@ -239,59 +280,44 @@ export default async function TeacherPage({
                 <span className="flex size-6 items-center justify-center rounded-full bg-primary/12">
                   <FileText className="size-3.5 text-primary" />
                 </span>
-                <h2 className="text-[var(--text-h2)] font-bold">الواجبات</h2>
+                <h2 className="text-[var(--text-h2)] font-bold">الواجبات النشطة</h2>
               </div>
               <div className="grid gap-2.5">
-                {[...drafts, ...published].map((a) => {
-                  const isDraft = a.status === "draft";
-                  return (
-                    <div key={a.id} className="rounded-[var(--radius-lg)] border border-border/70 bg-card p-4 shadow-card">
-                      <div className="flex flex-wrap items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="truncate text-base font-bold">{a.title}</span>
-                            <Badge variant={isDraft ? "secondary" : "success"}>
-                              {isDraft ? "مسودة" : "منشور"}
-                            </Badge>
-                          </div>
-                          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
-                            <span>{a.classes?.name}</span>
-                            {a.assignment_attachments?.[0]?.count ? (
-                              <span className="inline-flex items-center gap-1">
-                                <Paperclip className="size-3" /> {a.assignment_attachments[0].count}
-                              </span>
-                            ) : null}
-                          </div>
+                {activeRows.map((a, i) => (
+                  <div key={a.id} style={{ animationDelay: `${i * 45}ms` }} className="animate-slide-up rounded-[var(--radius-lg)] border border-border/70 bg-card p-4 shadow-card">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="truncate text-base font-bold">{a.title}</span>
+                          <Badge variant="success">منشور</Badge>
                         </div>
-                        <div className="shrink-0 text-left text-xs text-muted-foreground">
-                          التسليم: {formatDate(a.due_at)}<br />
-                          الدرجة:{a.max_grade}
+                        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+                          <span>{a.classes?.name}</span>
+                          {a.assignment_attachments?.[0]?.count ? (
+                            <span className="inline-flex items-center gap-1">
+                              <Paperclip className="size-3" /> {a.assignment_attachments[0].count}
+                            </span>
+                          ) : null}
                         </div>
                       </div>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                      {isDraft ? (
-                          <>
-                            <form action={publishAssignmentAction}>
-                              <input type="hidden" name="assignmentId" value={a.id} />
-                              <Button type="submit" size="sm">نشر للصف</Button>
-                            </form>
-                            <form action={deleteAssignmentAction}>
-                              <input type="hidden" name="assignmentId" value={a.id} />
-                              <Button type="submit" variant="destructive" size="sm">حذف</Button>
-                            </form>
-                          </>
-                        ) : (
-                          <Button asChild variant="ghost" size="sm">
-                            <Link href={`/teacher/conversations?assignment=${a.id}`}>متابعة المحادثات</Link>
-                          </Button>
-                        )}
+                      <div className="shrink-0 text-left text-xs text-muted-foreground">
+                        التسليم: {formatDate(a.due_at)}<br />
+                        الدرجة:{a.max_grade}
                       </div>
                     </div>
-                  );
-                })}
-                {(drafts.length + published.length) === 0 ? (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Button asChild variant="ghost" size="sm">
+                        <Link href={`/teacher/conversations?assignment=${a.id}`}>متابعة المحادثات</Link>
+                      </Button>
+                      <Button asChild variant="ghost" size="sm">
+                        <Link href={`/teacher/assignments/${a.id}`}>تفاصيل الواجب</Link>
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+                {activeRows.length === 0 ? (
                   <p className="rounded-xl border border-dashed border-border bg-card/50 p-6 text-center text-sm text-muted-foreground">
-                    لا توجد واجبات بعد. أنشئ أول واجب من الأسفل.
+                    لا توجد واجبات نشطة بعد. أنشئ واجبًا من الأسفل أو تصفح الواجبات في تبويب الإحصائيات.
                   </p>
                 ) : null}
               </div>

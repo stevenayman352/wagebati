@@ -85,7 +85,7 @@ const MessageBubble = memo(function MessageBubble({
 
   return (
     <article
-      className={cn("flex items-end gap-2", mine ? "flex-row-reverse" : "")}
+      className={cn("flex items-end gap-1.5", mine ? "flex-row-reverse" : "")}
       onPointerDown={handleSwipeDown}
       onPointerUp={handleSwipeUp}
     >
@@ -100,11 +100,11 @@ const MessageBubble = memo(function MessageBubble({
       ) : null}
       <div
         className={cn(
-          "max-w-[85%] rounded-[18px] border px-3 py-1.5 text-sm shadow-card animate-slide-up",
+          "max-w-[80%] rounded-[16px] px-2.5 py-1 text-sm shadow-card animate-slide-up",
           m.kind === "video" ? "w-[min(92%,26rem)]" : "",
           mine
-            ? "rounded-bl-[6px] border-transparent bg-primary text-primary-foreground"
-            : "rounded-br-[6px] border-border/70 bg-card text-foreground",
+            ? "rounded-bl-[6px] bg-primary text-primary-foreground"
+            : "rounded-br-[6px] bg-card text-foreground",
           m._pending ? "opacity-60" : ""
         )}
       >
@@ -119,7 +119,7 @@ const MessageBubble = memo(function MessageBubble({
             <p className="truncate opacity-80">{quotePreview(replied)}</p>
           </div>
         ) : null}
-        {m.kind === "text" ? <p className="whitespace-pre-wrap leading-relaxed">{m.body}</p> : null}
+        {m.kind === "text" ? <p className="whitespace-pre-wrap leading-snug">{m.body}</p> : null}
         {m.kind === "image" && m.storage_path && !m.deleted_from_storage_at ? (
           <button
             type="button"
@@ -149,11 +149,11 @@ const MessageBubble = memo(function MessageBubble({
         ) : null}
         <div
           className={cn(
-            "mt-1.5 flex items-center gap-2 text-[0.68rem]",
-            mine ? "justify-start text-primary-foreground/75" : "justify-end text-muted-foreground"
+            "mt-1 flex items-center gap-1.5 text-[0.62rem]",
+            mine ? "justify-start text-primary-foreground/70" : "justify-end text-muted-foreground"
           )}
         >
-          <span className="font-semibold">{senderName}</span>
+          {!mine ? <span className="font-semibold">{senderName}</span> : null}
           <span>{formatTime(m.created_at)}</span>
         </div>
       </div>
@@ -320,7 +320,7 @@ export const ConversationThread = forwardRef<ConversationThreadHandle, {
   return (
     <div
       className={cn(
-        "grid gap-2 overflow-y-auto rounded-[var(--radius-lg)] border border-border/70 bg-muted/40 p-3.5",
+        "grid gap-1 overflow-y-auto rounded-[var(--radius-lg)] border border-border/70 bg-muted/40 p-2.5",
         fill ? "min-h-0 flex-1" : "max-h-[65vh] md:max-h-[72vh]"
       )}
       style={{
