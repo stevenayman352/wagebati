@@ -1,10 +1,11 @@
 "use client";
 
-import { memo, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, forwardRef } from "react";
+import { Fragment, memo, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, forwardRef } from "react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { markConversationReadAction } from "@/app/actions/messages";
 import { MediaViewer } from "@/components/media-viewer";
 import { VoiceMessagePlayer } from "@/components/voice-message-player";
+import { formatAppTime } from "@/lib/dates";
 import { cn } from "@/lib/utils";
 import { Trophy } from "lucide-react";
 
@@ -26,8 +27,7 @@ export type ThreadMessage = {
 };
 
 export function formatTime(value: string) {
-  const d = new Date(value);
-  return d.toLocaleString("ar", { hour: "numeric", minute: "2-digit", hour12: true });
+  return formatAppTime(value);
 }
 
 export function quotePreview(m: Pick<ThreadMessage, "kind" | "body">): string {
@@ -42,6 +42,57 @@ export function markRead(conversationId: string) {
   const fd = new FormData();
   fd.set("conversationId", conversationId);
   void markConversationReadAction(fd);
+}
+
+function dayKeyOf(d: Date): string {
+  return d.toLocaleDateString("en-CA");
+}
+
+export function dayKey(value: string): string {
+  return dayKeyOf(new Date(value));
+}
+
+function startOfDay(now: Date): Date {
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+}
+
+export function weekStartKey(now: Date): string {
+  const d = startOfDay(now);
+  d.setDate(d.getDate() - d.getDay());
+  return dayKeyOf(d);
+}
+
+function weekdayName(value: string): string {
+  return new Date(value).toLocaleDateString("ar", { weekday: "long" });
+}
+
+export function dayLabel(value: string, now: Date = new Date()): { line1: string; line2?: string } {
+  const key = dayKey(value);
+  const today = startOfDay(now);
+  const yesterday = startOfDay(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+
+  if (key === dayKeyOf(today)) return { line1: "اليوم" };
+  if (key === dayKeyOf(yesterday)) return { line1: "أمس" };
+  if (key >= weekStartKey(now)) return { line1: weekdayName(value) };
+
+  const d = new Date(value);
+  const date = d.toLocaleDateString("ar", { day: "numeric", month: "long" });
+  return {
+    line1: weekdayName(value),
+    line2: d.getFullYear() !== now.getFullYear() ? `${date} ${d.getFullYear()}` : date
+  };
+}
+
+function DaySeparator({ label }: { label: { line1: string; line2?: string } }) {
+  return (
+    <div className="mx-auto my-1 flex w-fit max-w-full flex-col items-center justify-center justify-self-center rounded-full bg-card/95 px-3 pb-[0.45rem] pt-[0.3rem] text-center shadow-sm ring-1 ring-border/60">
+      <span className="text-xs font-bold leading-tight text-muted-foreground">{label.line1}</span>
+      {label.line2 ? (
+        <span className="text-[0.68rem] leading-tight text-muted-foreground/80">{label.line2}</span>
+      ) : null}
+    </div>
+  );
 }
 
 const MessageBubble = memo(function MessageBubble({
@@ -328,22 +379,26 @@ export const ConversationThread = forwardRef<ConversationThreadHandle, {
         backgroundSize: "18px 18px"
       }}
     >
-      {messages.map((m) => {
+      {messages.map((m, i) => {
         const mine = m.sender_id === mineId;
         const senderName = nameFor(m, mine);
         const replied = m.reply_to_message_id ? replyMap.get(m.reply_to_message_id) : undefined;
+        const prev = i > 0 ? messages[i - 1] : undefined;
+        const dayIsNew = !prev || dayKey(m.created_at) !== dayKey(prev.created_at);
         return (
-          <MessageBubble
-            key={m.id}
-            m={m}
-            mine={mine}
-            mineId={mineId}
-            senderName={senderName}
-            replied={replied}
-            url={urls[m.id]}
-            onOpenViewer={handleOpenViewer}
-            onReply={onReply}
-          />
+          <Fragment key={m.id}>
+            {dayIsNew ? <DaySeparator label={dayLabel(m.created_at)} /> : null}
+            <MessageBubble
+              m={m}
+              mine={mine}
+              mineId={mineId}
+              senderName={senderName}
+              replied={replied}
+              url={urls[m.id]}
+              onOpenViewer={handleOpenViewer}
+              onReply={onReply}
+            />
+          </Fragment>
         );
       })}
       {messages.length === 0 ? (

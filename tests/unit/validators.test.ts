@@ -9,7 +9,8 @@ import {
   accountSchema,
   codeSchema,
   messageSchema,
-  attachmentSchema
+  attachmentSchema,
+  reopenAssignmentSchema
 } from "@/lib/validators";
 
 const UUID = "00000000-0000-0000-0000-000000000001";
@@ -169,30 +170,28 @@ describe("gradeSchema", () => {
 });
 
 describe("assignmentSchema", () => {
-  it("defaults maxGrade to 20 and accepts due date + time", () => {
+  it("defaults maxGrade to 20 and accepts an ISO dueAt", () => {
     const res = assignmentSchema.safeParse({
       classId: UUID,
       title: "حفظ سورة النبأ",
       instructions: "",
-      dueDate: "2026-09-05",
-      dueTime: "23:59",
+      dueAt: "2026-09-05T23:59:00.000Z",
       maxGrade: ""
     });
     expect(res.success).toBe(true);
     if (res.success) {
       expect(res.data.maxGrade).toBe(20);
-      expect(res.data.dueDate).toBe("2026-09-05");
-      expect(res.data.dueTime).toBe("23:59");
+      expect(res.data.dueAt).toBe("2026-09-05T23:59:00.000Z");
     }
   });
 
-  it("rejects missing due date/time", () => {
+  it("rejects missing dueAt", () => {
     const res = assignmentSchema.safeParse({
       classId: UUID,
       title: "حفظ سورة النبأ",
       instructions: "",
-      dueDate: "",
-      dueTime: ""
+      dueAt: "",
+      maxGrade: ""
     });
     expect(res.success).toBe(false);
   });
@@ -382,6 +381,33 @@ describe("accountSchema role restriction", () => {
       role: "superuser",
       code: ""
     });
+    expect(res.success).toBe(false);
+  });
+});
+
+describe("reopenAssignmentSchema", () => {
+  const future = new Date(Date.now() + 86400000).toISOString();
+  const past = new Date(Date.now() - 86400000).toISOString();
+
+  it("accepts a future deadline", () => {
+    const res = reopenAssignmentSchema.safeParse({ assignmentId: UUID, dueAt: future });
+    expect(res.success).toBe(true);
+    if (res.success) expect(res.data.dueAt).toBe(future);
+  });
+
+  it("accepts an empty deadline (manual close)", () => {
+    const res = reopenAssignmentSchema.safeParse({ assignmentId: UUID, dueAt: "" });
+    expect(res.success).toBe(true);
+    if (res.success) expect(res.data.dueAt).toBeNull();
+  });
+
+  it("rejects a past deadline", () => {
+    const res = reopenAssignmentSchema.safeParse({ assignmentId: UUID, dueAt: past });
+    expect(res.success).toBe(false);
+  });
+
+  it("rejects an invalid deadline value", () => {
+    const res = reopenAssignmentSchema.safeParse({ assignmentId: UUID, dueAt: "not-a-date" });
     expect(res.success).toBe(false);
   });
 });

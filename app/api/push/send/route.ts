@@ -3,8 +3,6 @@ import { NextRequest } from "next/server";
 import webpush from "web-push";
 import { rateLimit } from "@/lib/rate-limit";
 
-export const runtime = "nodejs";
-
 const service = () =>
   createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, {
     auth: { persistSession: false, autoRefreshToken: false }

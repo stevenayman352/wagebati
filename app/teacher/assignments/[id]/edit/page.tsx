@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
-import Link from "next/link";
+import { cacheLife, cacheTag } from "next/cache";
 import { ActionForm } from "@/components/action-form";
+import { DueDateInputs } from "@/components/due-date-inputs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { PageShell } from "@/components/page-shell";
@@ -16,7 +17,9 @@ import {
 } from "@/app/actions/teacher";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { ArrowLeft, FileText, Paperclip, Rocket, Trash2, Info } from "lucide-react";
+import { FileText, Paperclip, Rocket, Trash2, Info } from "lucide-react";
+import { BackButton } from "@/components/back-button";
+import { formatAppDate } from "@/lib/dates";
 
 type Attachment = {
   id: string;
@@ -26,36 +29,39 @@ type Attachment = {
   created_at: string;
 };
 
-export default async function EditAssignmentPage({ params }: { params: Promise<{ id: string }> }) {
-  const profile = await requireRole(["teacher", "admin"]);
-  const { id } = await params;
+type AssignmentEditorData = {
+  id: string;
+  class_id: string;
+  title: string;
+  instructions: string | null;
+  due_at: string | null;
+  max_grade: number;
+  status: string;
+  published_at: string | null;
+  classes: { name: string } | null;
+};
+
+async function loadAssignmentEditor(profileId: string, assignmentId: string) {
+  "use cache: private";
+  cacheTag(`assignments:${profileId}`);
+  cacheLife({ stale: 60 });
+
   const supabase = await createSupabaseServerClient();
 
   const { data: assignmentRow } = await supabase
     .from("assignments")
     .select("id, class_id, title, instructions, due_at, max_grade, status, published_at, classes!inner(name)")
-    .eq("id", id)
-    .eq("teacher_id", profile.id)
+    .eq("id", assignmentId)
+    .eq("teacher_id", profileId)
     .single();
 
-  const assignment = assignmentRow as unknown as {
-    id: string;
-    class_id: string;
-    title: string;
-    instructions: string | null;
-    due_at: string | null;
-    max_grade: number;
-    status: string;
-    published_at: string | null;
-    classes: { name: string } | null;
-  };
-
-  if (!assignment) notFound();
+  const assignment = assignmentRow as unknown as AssignmentEditorData | null;
+  if (!assignment) return null;
 
   const { data: attachments } = await supabase
     .from("assignment_attachments")
     .select("id, file_name, mime_type, file_size, created_at, storage_path")
-    .eq("assignment_id", id)
+    .eq("assignment_id", assignmentId)
     .order("created_at");
 
   const rows = (attachments ?? []) as (Attachment & { storage_path: string })[];
@@ -69,20 +75,27 @@ export default async function EditAssignmentPage({ params }: { params: Promise<{
     );
   }
 
+  return { assignment, attachments: rows, signed };
+}
+
+export default async function EditAssignmentPage({ params }: { params: Promise<{ id: string }> }) {
+  const profile = await requireRole(["teacher", "admin"]);
+  const { id } = await params;
+
+  const loaded = await loadAssignmentEditor(profile.id, id);
+  if (!loaded) notFound();
+
+  const assignment = loaded.assignment;
+  const rows = loaded.attachments;
+  const signed = loaded.signed;
+
   const published = assignment.status === "published";
-  const dueDate = assignment.due_at ? assignment.due_at.slice(0, 10) : "";
-  const dueTime = assignment.due_at ? assignment.due_at.slice(11, 16) : "";
 
   return (
     <>
       <PageShell>
         <div className="mb-5 flex items-center justify-between gap-3">
-          <Button asChild variant="ghost" size="sm" className="-mx-2 text-muted-foreground">
-            <Link href="/teacher" className="gap-1.5">
-              <ArrowLeft className="size-4" />
-              رجوع
-            </Link>
-          </Button>
+          <BackButton fallbackHref={`/teacher/assignments/${id}`} />
         </div>
 
         <header className="mb-6 flex items-center gap-3">
@@ -102,8 +115,8 @@ export default async function EditAssignmentPage({ params }: { params: Promise<{
           <div className="mb-6 flex items-start gap-3 rounded-[var(--radius-lg)] border border-success/25 bg-success/8 p-4">
             <Info className="mt-0.5 size-4 shrink-0 text-success" />
             <div className="text-sm">
-              <p className="font-semibold">منشور منذ {new Date(assignment.published_at!).toLocaleString("ar")}</p>
-              <p className="mt-1 text-muted-foreground">الواجب منشور وقيمته مثبتة، لا يمكن تعديله. لإنهاء الاستلام استخدم متابعة المحادثات.</p>
+              <p className="font-semibold">منشور منذ {formatAppDate(assignment.published_at)}</p>
+              <p className="mt-1 text-muted-foreground">الواجب منشور وقيمته مثبتة، لا يمكن تعديله. لإنهاء الاستلام استخدم صفحة الواجب.</p>
             </div>
           </div>
         ) : null}
@@ -127,14 +140,7 @@ export default async function EditAssignmentPage({ params }: { params: Promise<{
                   defaultValue={assignment.instructions ?? ""}
                 />
               </div>
-              <div className="grid gap-1.5">
-                <Label htmlFor="dueDate">تاريخ التسليم</Label>
-                <Input id="dueDate" name="dueDate" type="date" defaultValue={dueDate} required />
-              </div>
-              <div className="grid gap-1.5">
-                <Label htmlFor="dueTime">وقت التسليم</Label>
-                <Input id="dueTime" name="dueTime" type="time" defaultValue={dueTime} required />
-              </div>
+              <DueDateInputs initialDueAt={assignment.due_at} />
               <div className="grid gap-1.5">
                 <Label htmlFor="maxGrade">الدرجة العظمى</Label>
                 <Input id="maxGrade" name="maxGrade" type="number" min="0.5" max="1000" step="0.5" defaultValue={assignment.max_grade} required />

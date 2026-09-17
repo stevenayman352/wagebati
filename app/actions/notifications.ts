@@ -1,9 +1,16 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
 import { getCurrentProfile } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { ActionState } from "@/lib/types";
+
+function invalidateNotificationCaches(role: string, userId: string) {
+  updateTag(`notifications:${userId}`);
+  if (role === "admin") updateTag(`admin-home:${userId}`);
+  else if (role === "teacher") updateTag(`teacher-dashboard:${userId}`);
+  else updateTag(`student-dashboard:${userId}`);
+}
 
 export async function markNotificationReadAction(formData: FormData) {
   const profile = await getCurrentProfile();
@@ -18,6 +25,7 @@ export async function markNotificationReadAction(formData: FormData) {
     .eq("id", id)
     .eq("user_id", profile.id);
 
+  invalidateNotificationCaches(profile.role, profile.id);
   revalidatePath("/notifications");
   revalidatePath(profile.role === "admin" ? "/admin" : profile.role === "teacher" ? "/teacher" : "/student");
 }
@@ -35,6 +43,7 @@ export async function markAllNotificationsReadAction(_: ActionState, formData: F
     .eq("is_read", false);
 
   if (error) return { ok: false, message: error.message };
+  invalidateNotificationCaches(profile.role, profile.id);
   revalidatePath("/notifications");
   revalidatePath(profile.role === "admin" ? "/admin" : profile.role === "teacher" ? "/teacher" : "/student");
   return { ok: true, message: "" };

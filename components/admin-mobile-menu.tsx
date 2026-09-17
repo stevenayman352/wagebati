@@ -63,6 +63,7 @@ export function AdminMobileMenu() {
               <Link
                 key={n.href}
                 href={n.href}
+                prefetch={true}
                 onClick={() => setOpen(false)}
                 aria-current={active ? "page" : undefined}
                 className={cn(

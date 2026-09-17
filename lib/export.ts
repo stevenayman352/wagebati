@@ -155,9 +155,9 @@ function wrapLongTitle(title: string, maxLength = 28): string {
 /**
  * Builds a real, styled .xlsx workbook buffer from export rows.
  *
- * Layout: one row per student — name in the first column, code in the second —
- * homework names as column headers, each student's grade in the matching
- * column, and a «مجموع درجات الواجبات» total column at the end.
+ * Layout: one row per student — index column, name, code — homework names as
+ * column headers, each student's grade in the matching column, and a
+ * «مجموع درجات الواجبات» total column at the end.
  */
 export async function buildXlsxBuffer(rows: Row[], className = ""): Promise<ArrayBuffer> {
   const wb = new ExcelJS.Workbook();
@@ -165,19 +165,22 @@ export async function buildXlsxBuffer(rows: Row[], className = ""): Promise<Arra
   wb.created = new Date();
   const ws = wb.addWorksheet("كشف الدرجات", {
     pageSetup: { orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0, paperSize: 9 },
-    views: [{ state: "frozen", xSplit: 2, ySplit: 2, rightToLeft: true, showGridLines: false }]
+    views: [{ state: "frozen", xSplit: 3, ySplit: 2, rightToLeft: true, showGridLines: false }]
   });
 
-  const { students, homeworks, homeworkMax } = collectMatrix(rows);
-  const nameCol = 1;
-  const codeCol = 2;
-  const lastColumn = 2 + homeworks.length + 1; // name + code + homeworks + total
+  const { students, homeworks: hwEncounterOrder, homeworkMax } = collectMatrix(rows);
+  const homeworks = [...hwEncounterOrder].reverse(); // input rows are newest-first ⇒ flipped = oldest first
+  const indexCol = 1;
+  const nameCol = 2;
+  const codeCol = 3;
+  const lastColumn = 3 + homeworks.length + 1; // index + name + code + homeworks + total
   const lastColName = ws.getColumn(lastColumn).letter;
-  const firstHomeworkCol = 3;
+  const firstHomeworkCol = 4;
   const totalMax = homeworks.reduce((acc, title) => acc + maxOf(homeworkMax, title), 0);
 
   for (let i = 1; i <= lastColumn; i++) {
-    ws.getColumn(i).width = i === nameCol ? 28 : i === codeCol ? 14 : i === lastColumn ? 20 : HW_COL_WIDTH;
+    ws.getColumn(i).width =
+      i === indexCol ? 7 : i === nameCol ? 28 : i === codeCol ? 14 : i === lastColumn ? 20 : HW_COL_WIDTH;
   }
 
   // Row 1 — banner
@@ -200,6 +203,7 @@ export async function buildXlsxBuffer(rows: Row[], className = ""): Promise<Arra
     return Math.max(max, wrappedLines + 1); // +1 for the bracketed max grade line
   }, 0);
   header.height = Math.max(42, headerLines * HEADER_LINE_H + 8);
+  Object.assign(header.getCell(indexCol), { value: "م", ...headerStyle(P_CODE, "1F3864") });
   Object.assign(header.getCell(nameCol), { value: "الاسم", ...headerStyle(P_HEADER, "FFFFFF") });
   Object.assign(header.getCell(codeCol), { value: "الكود", ...headerStyle(P_CODE, "1F3864") });
 
@@ -235,6 +239,13 @@ export async function buildXlsxBuffer(rows: Row[], className = ""): Promise<Arra
     const row = ws.getRow(3 + sIndex);
     row.height = 26;
     const zebraFill = sIndex % 2 === 1 ? solid(P_ZEBRA) : { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: "FFFFFFFF" } };
+
+    const iCell = row.getCell(indexCol);
+    iCell.value = sIndex + 1;
+    iCell.fill = zebraFill;
+    iCell.alignment = { horizontal: "center", vertical: "middle" };
+    iCell.font = { size: 11, name: "Consolas", color: { argb: "FF595959" } };
+    iCell.border = allBorders();
 
     Object.assign(row.getCell(nameCol), {
       value: student.name,

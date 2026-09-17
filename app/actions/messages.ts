@@ -1,6 +1,6 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
 import { getCurrentProfile } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { messageSchema, uuidFormSchema } from "@/lib/validators";
@@ -9,6 +9,12 @@ import type { ActionState } from "@/lib/types";
 type AccessContext =
   | { ok: true; profile: NonNullable<Awaited<ReturnType<typeof getCurrentProfile>>>; supabase: Awaited<ReturnType<typeof createSupabaseServerClient>> }
   | { ok: false; error: string };
+
+function invalidateUserCaches(userId: string) {
+  updateTag(`conversations:${userId}`);
+  updateTag(`teacher-dashboard:${userId}`);
+  updateTag(`student-dashboard:${userId}`);
+}
 
 async function conversationAccess(conversationId: string): Promise<AccessContext> {
   const profile = await getCurrentProfile();
@@ -65,6 +71,7 @@ export async function sendTextMessageAction(state: ActionState, formData: FormDa
   });
 
   if (error) return { ok: false, message: error.message.includes("can_post_message") ? "المحادثة مغلقة." : error.message };
+  invalidateUserCaches(ctx.profile.id);
   return { ok: true, message: "" };
 }
 
@@ -101,6 +108,7 @@ export async function sendImageMessageAction(state: ActionState, formData: FormD
   });
 
   if (error) return { ok: false, message: error.message.includes("can_post_message") ? "المحادثة مغلقة." : error.message };
+  invalidateUserCaches(ctx.profile.id);
   revalidatePath("/teacher");
   return { ok: true, message: "" };
 }
@@ -141,6 +149,7 @@ export async function sendVideoMessageAction(state: ActionState, formData: FormD
   });
 
   if (error) return { ok: false, message: error.message.includes("can_post_message") ? "المحادثة مغلقة." : error.message };
+  invalidateUserCaches(ctx.profile.id);
   revalidatePath("/teacher");
   return { ok: true, message: "" };
 }
@@ -181,6 +190,7 @@ export async function sendVoiceMessageAction(state: ActionState, formData: FormD
   });
 
   if (error) return { ok: false, message: error.message.includes("can_post_message") ? "المحادثة مغلقة." : error.message };
+  invalidateUserCaches(ctx.profile.id);
   revalidatePath("/teacher");
   return { ok: true, message: "" };
 }
@@ -198,5 +208,6 @@ export async function markConversationReadAction(formData: FormData) {
       { conversation_id: parsed.data.id, user_id: profile.id, last_read_at: new Date().toISOString() },
       { onConflict: "conversation_id,user_id" }
     );
+  updateTag(`conversations:${profile.id}`);
   revalidatePath("/teacher");
 }

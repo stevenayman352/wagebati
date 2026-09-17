@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { markAllNotificationsReadAction, markNotificationReadAction } from "@/app/actions/notifications";
+import { formatAppDate } from "@/lib/dates";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
@@ -22,6 +23,7 @@ const TYPE_LABEL: Record<string, string> = {
   grade_recorded: "درجة",
   revision: "مراجعة",
   closed: "إغلاق",
+  reopened: "إعادة فتح",
   submission: "حل جديد",
   message: "رسالة",
   new_assignment: "واجب جديد",
@@ -30,8 +32,7 @@ const TYPE_LABEL: Record<string, string> = {
 };
 
 function formatDate(value: string) {
-  const d = new Date(value);
-  return d.toLocaleString("ar", { dateStyle: "medium", timeStyle: "short" });
+  return formatAppDate(value);
 }
 
 export function NotificationFeed({ userId, initial, initialUnread }: { userId: string; initial: NotificationRow[]; initialUnread: number }) {
@@ -104,6 +105,7 @@ export function NotificationFeed({ userId, initial, initialUnread }: { userId: s
           <Link
             key={n.id}
             href={n.href}
+            prefetch={true}
             className="rounded-lg border bg-card transition-colors hover:bg-muted"
             onClick={() => markOne(n)}
           >

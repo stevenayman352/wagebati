@@ -1,6 +1,6 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -8,6 +8,12 @@ import { submissionSchema, submissionImagesSchema } from "@/lib/validators";
 import type { ActionState } from "@/lib/types";
 
 type ParsedImages = { path: string; name: string; mime: string; size: number }[];
+
+function invalidateStudentCaches(studentId: string) {
+  updateTag(`student-dashboard:${studentId}`);
+  updateTag(`teacher-dashboard:${studentId}`);
+  updateTag(`conversations:${studentId}`);
+}
 
 export async function submitSubmissionAction(_: ActionState, formData: FormData): Promise<ActionState> {
   const profile = await requireRole(["student"]);
@@ -117,6 +123,7 @@ export async function submitSubmissionAction(_: ActionState, formData: FormData)
     }
   }
 
+  invalidateStudentCaches(profile.id);
   revalidatePath("/student");
   revalidatePath(`/student/assignments/${parsed.data.conversationId}`);
   return { ok: true, message: `تم إرسال الحل (محاولة ${parsed.data.attempt}).` };

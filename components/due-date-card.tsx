@@ -1,9 +1,9 @@
 import { CalendarDays } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { formatAppDate } from "@/lib/dates";
 
 export function formatDueDate(value: string | null) {
-  if (!value) return "بدون موعد";
-  return new Date(value).toLocaleString("ar", { dateStyle: "medium", timeStyle: "short" });
+  return formatAppDate(value);
 }
 
 export type DueTone = "ok" | "soon" | "over" | "none";

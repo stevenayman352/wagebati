@@ -5,11 +5,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { PageShell } from "@/components/page-shell";
 import { AppNav } from "@/components/app-nav";
-import { ArrowLeft, GraduationCap, ChevronUp, FileText, CheckCircle2 } from "lucide-react";
+import { GraduationCap, ChevronUp, FileText, CheckCircle2 } from "lucide-react";
+import { BackButton } from "@/components/back-button";
+import { formatAppDate } from "@/lib/dates";
 
 function fmt(value: string | null) {
   if (!value) return "";
-  return new Date(value).toLocaleString("ar", { dateStyle: "short", timeStyle: "short" });
+  return formatAppDate(value);
 }
 
 export default async function TeacherStudentPage({
@@ -58,12 +60,7 @@ export default async function TeacherStudentPage({
     <>
       <PageShell>
         <div className="mb-5 flex items-center justify-between gap-3">
-          <Button asChild variant="ghost" size="sm" className="-mx-2 text-muted-foreground">
-            <Link href={`/teacher/classes/${classId}`} className="gap-1.5">
-              <ArrowLeft className="size-4" />
-              رجوع
-            </Link>
-          </Button>
+          <BackButton fallbackHref={`/teacher/classes/${classId}`} />
           <Button asChild variant="outline" size="sm">
             <a href={`/preview?target=student&format=pdf&id=${studentId}`} className="gap-1.5">
               <FileText className="size-3.5" />

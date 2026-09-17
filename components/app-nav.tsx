@@ -50,6 +50,7 @@ function AppNavContent({ role }: { role: "student" | "teacher" }) {
             <Link
               key={item.label}
               href={item.href}
+              prefetch={true}
               aria-current={active ? "page" : undefined}
               className="group flex min-h-12 flex-1 flex-col items-center justify-center gap-0.5 px-1 transition-colors md:min-h-14 md:gap-1 md:px-1.5"
             >

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { cacheLife, cacheTag } from "next/cache";
 import { ActionForm } from "@/components/action-form";
 import { LogoutButton } from "@/components/logout-button";
 import { Badge } from "@/components/ui/badge";
@@ -10,7 +11,9 @@ import { Label } from "@/components/ui/label";
 import {
   createAssignmentAction
 } from "@/app/actions/teacher";
+import { DueDateInputs } from "@/components/due-date-inputs";
 import { NotificationBell } from "@/components/notification-bell";
+import { ensureOverdueConversationsClosed } from "@/lib/close-overdue";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { fetchStudentChatActivity } from "@/lib/assignment-activity";
@@ -20,6 +23,7 @@ import {
   type TeacherStatusKey
 } from "@/lib/assignment-status";
 import { cn } from "@/lib/utils";
+import { formatAppDate } from "@/lib/dates";
 import { CheckCircle2, Plus, Users, FileText, Paperclip, Mail, Hash, ShieldCheck, ClipboardCheck, Clock3, XCircle, BarChart3 } from "lucide-react";
 
 type Row = {
@@ -36,9 +40,81 @@ type Row = {
 };
 
 function formatDate(value: string | null) {
-  if (!value) return "بدون موعد";
-  const d = new Date(value);
-  return d.toLocaleString("ar", { dateStyle: "medium", timeStyle: "short" });
+  return formatAppDate(value);
+}
+
+async function loadTeacherDashboard(profileId: string, role: string) {
+  "use cache: private";
+  cacheTag(`teacher-dashboard:${profileId}`);
+  cacheLife({ stale: 60 });
+
+  const supabase = await createSupabaseServerClient();
+
+  const [{ data: myClasses }, { count: unreadCount }, convRes, enrollRes] = await Promise.all([
+    supabase
+      .from("class_teachers")
+      .select("class_id")
+      .eq("teacher_id", profileId),
+    supabase
+      .from("notifications")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", profileId)
+      .eq("is_read", false),
+    supabase
+      .from("conversations")
+      .select("id, status, closed_by, assignment:assignments!inner(id, due_at, class_id)"),
+    supabase.from("class_students").select("class_id, student_id")
+  ]);
+
+  const classIds = role === "admin"
+    ? null
+    : (myClasses ?? []).map((r) => r.class_id as string);
+
+  let classesQuery = supabase.from("classes").select("id, name, grade_label").order("name");
+  if (classIds) classesQuery = classesQuery.in("id", classIds.length ? classIds : ["00000000-0000-0000-0000-000000000000"]);
+
+  let assignmentsQuery = supabase
+    .from("assignments")
+    .select(
+      "id, title, instructions, due_at, max_grade, status, published_at, created_at, classes!inner(name), assignment_attachments(count)"
+    )
+    .order("created_at", { ascending: false });
+  if (classIds) assignmentsQuery = assignmentsQuery.in("class_id", classIds.length ? classIds : ["00000000-0000-0000-0000-000000000000"]);
+
+  const conversationIds = (convRes.data ?? [])
+    .filter((c) => {
+      const a = (c as { assignment?: { class_id?: string } | null }).assignment;
+      if (classIds && (!a?.class_id || !classIds.includes(a.class_id))) return false;
+      return true;
+    })
+    .map((c) => (c as { id: string }).id);
+
+  const [classesRes, assignmentsRes, subsRes, gradesRes, chatActive] = await Promise.all([
+    classesQuery,
+    assignmentsQuery,
+    conversationIds.length
+      ? supabase
+          .from("submissions")
+          .select("conversation_id")
+          .in("conversation_id", conversationIds)
+      : Promise.resolve({ data: [] }),
+    conversationIds.length
+      ? supabase.from("grades").select("conversation_id").in("conversation_id", conversationIds)
+      : Promise.resolve({ data: [] }),
+    fetchStudentChatActivity(supabase, conversationIds)
+  ]);
+
+  return {
+    classTeacherIds: classIds,
+    unreadCount: unreadCount ?? 0,
+    classes: classesRes.data ?? [],
+    conversations: convRes.data ?? [],
+    assignments: assignmentsRes.data ?? [],
+    enrollments: enrollRes.data ?? [],
+    submittedIds: (subsRes.data ?? []).map((s) => s.conversation_id as string),
+    gradedIds: (gradesRes.data ?? []).map((g) => g.conversation_id as string),
+    chatActivityIds: [...chatActive]
+  };
 }
 
 export default async function TeacherPage({
@@ -48,7 +124,8 @@ export default async function TeacherPage({
 }) {
   const profile = await requireRole(["teacher", "admin"]);
   const { tab } = await searchParams;
-  const supabase = await createSupabaseServerClient();
+
+  void ensureOverdueConversationsClosed();
 
   if (tab === "account") {
     return (
@@ -88,25 +165,9 @@ export default async function TeacherPage({
     );
   }
 
-  const [{ data: myClasses }, { count: unreadCount }, convRes, enrollRes] = await Promise.all([
-    supabase
-      .from("class_teachers")
-      .select("class_id")
-      .eq("teacher_id", profile.id),
-    supabase
-      .from("notifications")
-      .select("id", { count: "exact", head: true })
-      .eq("user_id", profile.id)
-      .eq("is_read", false),
-    supabase
-      .from("conversations")
-      .select("id, status, closed_by, assignment:assignments!inner(due_at, class_id)"),
-    supabase.from("class_students").select("class_id, student_id")
-  ]);
+  const data = await loadTeacherDashboard(profile.id, profile.role);
 
-  const classIds = profile.role === "admin"
-    ? null
-    : (myClasses ?? []).map((r) => r.class_id as string);
+  const classIds = data.classTeacherIds;
 
   const inScope = classIds
     ? (ids: string[]) => ids.some((id) => (classIds as string[]).includes(id))
@@ -115,55 +176,53 @@ export default async function TeacherPage({
   // eslint-disable-next-line react-hooks/purity
   const nowMs = Date.now();
 
-  const conversations = (convRes.data ?? []).filter((c) => {
-    const a = c.assignment as unknown as { class_id?: string; due_at?: string | null } | null;
+  const conversations = (data.conversations as {
+    id: string;
+    status: string;
+    closed_by: string | null;
+    assignment?: { id?: string; class_id?: string; due_at?: string | null } | null;
+  }[]).filter((c) => {
+    const a = c.assignment;
     if (!a?.class_id || !inScope([a.class_id])) return false;
-    if (!a.due_at || new Date(a.due_at).getTime() < nowMs) return false;
     return true;
   });
-  const conversationIds = conversations.map((c) => c.id as string);
+  const classes = data.classes as { id: string; name: string; grade_label: string }[];
 
-  let classesQuery = supabase.from("classes").select("id, name, grade_label").order("name");
-  if (classIds) classesQuery = classesQuery.in("id", classIds.length ? classIds : ["00000000-0000-0000-0000-000000000000"]);
+  const rows = data.assignments as unknown as Row[];
 
-  let assignmentsQuery = supabase
-    .from("assignments")
-    .select(
-      "id, title, instructions, due_at, max_grade, status, published_at, created_at, classes!inner(name), assignment_attachments(count)"
-    )
-    .order("created_at", { ascending: false });
-  if (classIds) assignmentsQuery = assignmentsQuery.in("class_id", classIds.length ? classIds : ["00000000-0000-0000-0000-000000000000"]);
-
-  const [classesRes, assignmentsRes, subsRes, gradesRes, chatActive] = await Promise.all([
-    classesQuery,
-    assignmentsQuery,
-    conversationIds.length
-      ? supabase
-          .from("submissions")
-          .select("conversation_id")
-          .in("conversation_id", conversationIds)
-      : Promise.resolve({ data: [] }),
-    conversationIds.length
-      ? supabase.from("grades").select("conversation_id").in("conversation_id", conversationIds)
-      : Promise.resolve({ data: [] }),
-    fetchStudentChatActivity(supabase, conversationIds)
-  ]);
-  const classes = classesRes.data;
-
-  const rows = (assignmentsRes.data ?? []) as unknown as Row[];
+  const activeStatusByAssignment = new Map<string, boolean>();
+  for (const c of data.conversations as {
+    id: string;
+    status: string;
+    closed_by: string | null;
+    assignment?: { id?: string; class_id?: string; due_at?: string | null } | null;
+  }[]) {
+    const aid = c.assignment?.id;
+    if (!aid) continue;
+    if (c.status === "active") activeStatusByAssignment.set(aid, true);
+    else if (!activeStatusByAssignment.has(aid)) activeStatusByAssignment.set(aid, false);
+  }
 
   const activeRows = rows.filter((r) => {
     if (r.status !== "published") return false;
-    if (!r.due_at) return false;
-    return new Date(r.due_at).getTime() >= nowMs;
+    if (r.due_at !== null && new Date(r.due_at).getTime() < nowMs) return false;
+    if (activeStatusByAssignment.get(r.id) === false) return false;
+    return true;
   });
 
-  const submittedIds = new Set((subsRes.data ?? []).map((s) => s.conversation_id as string));
-  const gradedIds = new Set((gradesRes.data ?? []).map((g) => g.conversation_id as string));
+  const submittedIds = new Set(data.submittedIds);
+  const gradedIds = new Set(data.gradedIds);
+  const chatActive = new Set(data.chatActivityIds);
+
+  const activeAssignmentIds = new Set(activeRows.map((r) => r.id));
+  const activeConversations = conversations.filter(
+    (c) => c.assignment?.id && activeAssignmentIds.has(c.assignment.id)
+  );
 
   const statusCounts = new Map<TeacherStatusKey, number>();
-  for (const c of conversations) {
-    const a = c.assignment as unknown as { due_at: string | null } | null;
+  const needsByAssignment = new Map<string, number>();
+  for (const c of activeConversations) {
+    const a = c.assignment;
     const key = computeAssignmentStatus({
       role: "teacher",
       status: c.status,
@@ -175,11 +234,14 @@ export default async function TeacherPage({
       nowMs
     }) as TeacherStatusKey;
     statusCounts.set(key, (statusCounts.get(key) ?? 0) + 1);
+    if (a?.id && (key === "under_review" || key === "awaiting_grading")) {
+      needsByAssignment.set(a.id, (needsByAssignment.get(a.id) ?? 0) + 1);
+    }
   }
 
   const studentCounts = new Map<string, number>();
-  for (const e of enrollRes.data ?? []) {
-    studentCounts.set(e.class_id as string, (studentCounts.get(e.class_id as string) ?? 0) + 1);
+  for (const e of data.enrollments as { class_id: string }[]) {
+    studentCounts.set(e.class_id, (studentCounts.get(e.class_id) ?? 0) + 1);
   }
   const MAIN_STATUSES: TeacherStatusKey[] = [
     "under_review",
@@ -213,7 +275,7 @@ export default async function TeacherPage({
             <h1 className="mt-3 font-amiri text-3xl font-bold">أهلًا يا {profile.full_name?.trim().split(/\s+/).slice(0, 2).join(" ") ?? "مُدرّس"}</h1>
           </div>
           <div className="flex items-center gap-1.5">
-            <NotificationBell userId={profile.id} initialUnread={unreadCount ?? 0} />
+            <NotificationBell userId={profile.id} initialUnread={data.unreadCount} />
           </div>
         </header>
 
@@ -224,8 +286,8 @@ export default async function TeacherPage({
               <BarChart3 className="size-4 text-primary" />
             </span>
             <div>
-              <h2 className="text-[var(--text-h2)] font-bold">إحصائيات واجبات الأسبوع الحالي</h2>
-              <p className="text-xs text-muted-foreground">الواجبات النشطة فقط — الواجبات المنتهية في تبويب الإحصائيات</p>
+              <h2 className="text-[var(--text-h2)] font-bold">إحصائيات الواجبات</h2>
+              <p className="text-xs text-muted-foreground">للواجبات النشطة فقط — مثل القائمة أعلاه</p>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-2.5 md:grid-cols-3">
@@ -235,7 +297,8 @@ export default async function TeacherPage({
               return (
                 <Link
                   key={key}
-                  href={`/teacher/conversations?status=${key}`}
+                  href={`/teacher/assignments?status=${key}`}
+                  prefetch={true}
                   style={{ animationDelay: `${i * 45}ms` }}
                   className={cn(
                     "group relative overflow-hidden rounded-2xl border p-4 shadow-card transition-all animate-slide-up hover:-translate-y-0.5 hover:shadow-raise active:translate-y-0",
@@ -289,7 +352,15 @@ export default async function TeacherPage({
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="truncate text-base font-bold">{a.title}</span>
-                          <Badge variant="success">منشور</Badge>
+                          <Badge variant="success">نشط</Badge>
+                          {(() => {
+                            const n = needsByAssignment.get(a.id) ?? 0;
+                            return n > 0 ? (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-warning/15 px-2 py-0.5 text-xs font-semibold text-warning-foreground">
+                                بحاجة متابعة {n}
+                              </span>
+                            ) : null;
+                          })()}
                         </div>
                         <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
                           <span>{a.classes?.name}</span>
@@ -307,10 +378,7 @@ export default async function TeacherPage({
                     </div>
                     <div className="mt-3 flex flex-wrap gap-2">
                       <Button asChild variant="ghost" size="sm">
-                        <Link href={`/teacher/conversations?assignment=${a.id}`}>متابعة المحادثات</Link>
-                      </Button>
-                      <Button asChild variant="ghost" size="sm">
-                        <Link href={`/teacher/assignments/${a.id}`}>تفاصيل الواجب</Link>
+                        <Link href={`/teacher/assignments/${a.id}`} prefetch={true}>متابعة الواجب</Link>
                       </Button>
                     </div>
                   </div>
@@ -336,7 +404,7 @@ export default async function TeacherPage({
               </div>
               <div className="grid gap-2">
                 {(classes ?? []).map((c) => (
-                  <Link key={c.id} href={`/teacher/classes/${c.id}`} className="flex items-center justify-between gap-2 rounded-xl border border-border/70 px-3 py-2.5 transition-colors hover:border-primary/40 hover:bg-muted/40">
+                  <Link key={c.id} href={`/teacher/classes/${c.id}`} prefetch={true} className="flex items-center justify-between gap-2 rounded-xl border border-border/70 px-3 py-2.5 transition-colors hover:border-primary/40 hover:bg-muted/40">
                     <span className="text-sm font-medium">فصل {c.name}</span>
                     <Badge variant="secondary">{studentCounts.get(c.id) ?? 0} طالب</Badge>
                   </Link>
@@ -375,14 +443,7 @@ export default async function TeacherPage({
                 <Label htmlFor="instructions">التعليمات</Label>
                 <textarea id="instructions" name="instructions" className="min-h-24 rounded-lg border border-border bg-background p-2.5 text-sm" />
               </div>
-              <div className="grid gap-1.5">
-                <Label htmlFor="dueDate">تاريخ التسليم</Label>
-                <Input id="dueDate" name="dueDate" type="date" required />
-              </div>
-              <div className="grid gap-1.5">
-                <Label htmlFor="dueTime">وقت التسليم</Label>
-                <Input id="dueTime" name="dueTime" type="time" required />
-              </div>
+              <DueDateInputs />
               <div className="grid gap-1.5">
                 <Label htmlFor="maxGrade">الدرجة العظمى</Label>
                 <Input id="maxGrade" name="maxGrade" type="number" min="0.5" max="1000" step="0.5" defaultValue="20" />

@@ -29,8 +29,10 @@ export const assignmentSchema = z.object({
   classId: z.string().uuid(),
   title: z.string().trim().min(2).max(120),
   instructions: z.string().trim().max(5000).default(""),
-  dueDate: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/, "موعد التسليم مطلوب"),
-  dueTime: z.string().trim().regex(/^\d{2}:\d{2}$/, "وقت التسليم مطلوب"),
+  dueAt: z
+    .string()
+    .trim()
+    .refine((v) => !Number.isNaN(Date.parse(v)), "موعد التسليم مطلوب"),
   maxGrade: z.preprocess(
     (v) => (v === "" || v === null || v === undefined ? "20" : v),
     z.coerce.number().min(0.5).max(1000)
@@ -41,12 +43,24 @@ export const assignmentUpdateSchema = z.object({
   assignmentId: z.string().uuid(),
   title: z.string().trim().min(2).max(120),
   instructions: z.string().trim().max(5000).default(""),
-  dueDate: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/, "موعد التسليم مطلوب"),
-  dueTime: z.string().trim().regex(/^\d{2}:\d{2}$/, "وقت التسليم مطلوب"),
+  dueAt: z
+    .string()
+    .trim()
+    .refine((v) => !Number.isNaN(Date.parse(v)), "موعد التسليم مطلوب"),
   maxGrade: z.preprocess(
     (v) => (v === "" || v === null || v === undefined ? "20" : v),
     z.coerce.number().min(0.5).max(1000)
   )
+});
+
+export const reopenAssignmentSchema = z.object({
+  assignmentId: z.string().uuid(),
+  dueAt: z
+    .string()
+    .trim()
+    .refine((v) => v === "" || !Number.isNaN(Date.parse(v)), "موعد التسليم غير صالح")
+    .transform((v) => (v === "" ? null : v))
+    .refine((v) => v === null || Date.parse(v) > Date.now(), "الموعد يجب أن يكون في المستقبل")
 });
 
 export const uuidFormSchema = z.object({

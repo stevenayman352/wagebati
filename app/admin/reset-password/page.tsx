@@ -7,31 +7,46 @@ import { Label } from "@/components/ui/label";
 import { resetPasswordAction, updateCodeAction } from "@/app/actions/admin";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { cacheLife, cacheTag } from "next/cache";
 import { RefreshCw, KeyRound } from "lucide-react";
 import { UserCodeLookup } from "@/components/admin/UserCodeLookup";
 
 type UserRow = { id: string; full_name: string; code: string; role: string };
 
-export default async function AdminResetPasswordPage() {
-  const profile = await requireRole(["admin"]);
+async function loadAdminResetPassword(profileId: string) {
+  "use cache: private";
+  cacheTag(`accounts:${profileId}`);
+  cacheLife({ stale: 60 });
+
   const supabase = await createSupabaseServerClient();
 
-  const { count: unreadCount } = await supabase
-    .from("notifications")
-    .select("id", { count: "exact", head: true })
-    .eq("user_id", profile.id)
-    .eq("is_read", false);
+  const [{ count: unreadCount }, usersRes] = await Promise.all([
+    supabase
+      .from("notifications")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", profileId)
+      .eq("is_read", false),
+    supabase
+      .from("profiles")
+      .select("id, full_name, code, role")
+      .order("full_name")
+  ]);
 
-  const { data: usersRes } = await supabase
-    .from("profiles")
-    .select("id, full_name, code, role")
-    .order("full_name");
+  return {
+    unreadCount: unreadCount ?? 0,
+    users: (usersRes.data ?? []) as unknown as UserRow[]
+  };
+}
 
-  const userOptions = (usersRes ?? []) as unknown as UserRow[];
+export default async function AdminResetPasswordPage() {
+  const profile = await requireRole(["admin"]);
+
+  const data = await loadAdminResetPassword(profile.id);
+  const userOptions = data.users;
   const studentOptions = userOptions.filter((u) => u.role === "student");
 
   return (
-    <AdminLayout profile={profile} title="إعادة تعيين كلمة المرور" subtitle="إدارة كلمات المرور" unread={unreadCount ?? 0}>
+    <AdminLayout profile={profile} title="إعادة تعيين كلمة المرور" subtitle="إدارة كلمات المرور" unread={data.unreadCount}>
       <div className="mx-auto max-w-2xl">
         <AdminSection icon={RefreshCw} title="إعادة تعيين كلمة المرور" subtitle="سيُطلب من المستخدم تغييرها عند الدخول.">
           <ActionForm action={resetPasswordAction} className="grid gap-3.5" submitLabel="إعادة تعيين">

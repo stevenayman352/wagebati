@@ -1,17 +1,16 @@
 import { notFound } from "next/navigation";
-import Link from "next/link";
 import { ChatPanel } from "@/components/chat-panel";
 import type { ThreadMessage } from "@/components/conversation-thread";
 import { ConfirmClose } from "@/components/confirm-close";
 import { ReopenConversation } from "@/components/reopen-conversation";
 import { GradeAutosave } from "@/components/grade-autosave";
 import { LiveGradeRefresh } from "@/components/live-grade-refresh";
-import { Button } from "@/components/ui/button";
 import { AppNav } from "@/components/app-nav";
+import { BackButton } from "@/components/back-button";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { formatDueDate } from "@/components/due-date-card";
-import { ArrowLeft, CalendarDays, UserRound } from "lucide-react";
+import { CalendarDays, UserRound } from "lucide-react";
 import { computeAssignmentStatus, type TeacherStatusKey } from "@/lib/assignment-status";
 import { StatusPill } from "@/components/status-chip";
 
@@ -20,13 +19,22 @@ export default async function TeacherConversationPage({ params }: { params: Prom
   const { id } = await params;
   const supabase = await createSupabaseServerClient();
 
-  const { data: conversation } = await supabase
-    .from("conversations")
-    .select(
-      "id, status, closed_by, closed_at, grades(grade), submissions(count), student:profiles!conversations_student_id_fkey(full_name, code), assignment:assignments!inner(title, due_at, max_grade)"
-    )
-    .eq("id", id)
-    .single();
+const [conversationRes, messagesRes] = await Promise.all([
+    supabase
+      .from("conversations")
+      .select(
+        "id, status, closed_by, closed_at, grades(grade), submissions(count), student:profiles!conversations_student_id_fkey(full_name, code), assignment:assignments!inner(title, due_at, max_grade)"
+      )
+      .eq("id", id)
+      .single(),
+    supabase
+      .from("messages")
+      .select("id, sender_id, sender_role, kind, body, storage_path, file_name, mime_type, file_size, duration_seconds, reply_to_message_id, created_at")
+      .eq("conversation_id", id)
+      .order("created_at")
+      .limit(1000)
+  ]);
+  const conversation = conversationRes.data;
   if (!conversation) notFound();
 
   const conv = conversation as unknown as {
@@ -40,14 +48,7 @@ export default async function TeacherConversationPage({ params }: { params: Prom
     assignment?: { title: string; due_at: string | null; max_grade: number } | null;
   };
 
-  const { data: messagesRes } = await supabase
-    .from("messages")
-    .select("id, sender_id, sender_role, kind, body, storage_path, file_name, mime_type, file_size, duration_seconds, deleted_from_storage_at, reply_to_message_id, created_at")
-    .eq("conversation_id", id)
-    .order("created_at")
-    .limit(1000);
-
-  const messages = (messagesRes ?? []) as unknown as ThreadMessage[];
+  const messages = (messagesRes.data ?? []) as unknown as ThreadMessage[];
 
   const mediaMessages = messages.filter((m): m is ThreadMessage & { storage_path: string } => Boolean(m.storage_path));
   const signedUrls = mediaMessages.length
@@ -83,12 +84,7 @@ export default async function TeacherConversationPage({ params }: { params: Prom
       <div className="relative flex h-dvh flex-col overflow-hidden">
         <header className="z-30 flex flex-col gap-3 border-b border-border/60 bg-card/95 px-4 pt-3.5 pb-3 shadow-sm backdrop-blur-xl md:px-6">
           <div className="mx-auto flex w-full max-w-5xl items-center gap-3">
-            <Button asChild variant="ghost" size="sm" className="-mx-2 shrink-0 text-muted-foreground">
-              <Link href="/teacher/conversations" className="gap-1.5">
-                <ArrowLeft className="size-4" />
-                رجوع
-              </Link>
-            </Button>
+            <BackButton fallbackHref="/teacher" />
             <div className="min-w-0 flex-1">
               <h1 className="line-clamp-2 break-words text-xl font-extrabold leading-snug md:text-2xl">{conv.assignment?.title}</h1>
             </div>

@@ -8,6 +8,7 @@ import {
   DialogTrigger
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { formatAppDate } from "@/lib/dates";
 import { Mic, VideoIcon, History } from "lucide-react";
 
 type SubmissionImage = {
@@ -30,7 +31,7 @@ export type Submission = {
 };
 
 function formatDate(value: string) {
-  return new Date(value).toLocaleString("ar", { dateStyle: "medium", timeStyle: "short" });
+  return formatAppDate(value);
 }
 
 export function SubmissionHistory({

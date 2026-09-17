@@ -1,13 +1,16 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { cacheLife, cacheTag } from "next/cache";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { PageShell } from "@/components/page-shell";
 import { AppNav } from "@/components/app-nav";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, ClipboardList, FileText, ChevronUp } from "lucide-react";
+import { BackButton } from "@/components/back-button";
+import { ClipboardList, FileText, ChevronUp } from "lucide-react";
 import { fetchStudentChatActivity } from "@/lib/assignment-activity";
+import { computeAssignmentStatus, isTeacherStatusKey, type TeacherStatusKey } from "@/lib/assignment-status";
+import { formatAppDate } from "@/lib/dates";
+import { ActiveHomeworksView, type ActiveHomeworkItem } from "@/components/active-homeworks-view";
 
 type AssignmentRow = {
   id: string;
@@ -27,13 +30,16 @@ type ConversationElement = {
   submissions?: { count: number }[] | null;
 };
 
-export default async function TeacherAssignmentsPage() {
-  const profile = await requireRole(["teacher", "admin"]);
+async function loadTeacherAssignments(profileId: string, role: string) {
+  "use cache: private";
+  cacheTag(`assignments:${profileId}`);
+  cacheLife({ stale: 60 });
+
   const supabase = await createSupabaseServerClient();
 
   let classIds: string[] | null = null;
-  if (profile.role !== "admin") {
-    const { data } = await supabase.from("class_teachers").select("class_id").eq("teacher_id", profile.id);
+  if (role !== "admin") {
+    const { data } = await supabase.from("class_teachers").select("class_id").eq("teacher_id", profileId);
     classIds = data?.map((c) => c.class_id as string) ?? [];
   }
 
@@ -46,12 +52,29 @@ export default async function TeacherAssignmentsPage() {
   if (classIds)
     assignmentQuery = assignmentQuery.in("class_id", classIds.length ? classIds : ["00000000-0000-0000-0000-000000000000"]);
   const { data: raw, error } = await assignmentQuery;
-  if (error) notFound();
+  if (error) throw new Error(`Failed to load assignments: ${error.message}`);
 
   const rows = (raw ?? []) as unknown as AssignmentRow[];
 
   const allConversationIds = rows.flatMap((a) => (a.conversations ?? []).map((c) => c.id));
   const chatActive = await fetchStudentChatActivity(supabase, allConversationIds);
+
+  return { rows, chatActivityIds: [...chatActive] };
+}
+
+export default async function TeacherAssignmentsPage({
+  searchParams
+}: {
+  searchParams: Promise<{ status?: string }>;
+}) {
+  const profile = await requireRole(["teacher", "admin"]);
+  const { status } = await searchParams;
+
+  const { rows, chatActivityIds } = await loadTeacherAssignments(profile.id, profile.role);
+  const chatActive = new Set(chatActivityIds);
+
+  // eslint-disable-next-line react-hooks/purity
+  const nowMs = Date.now();
 
   const hasActivity = (c: ConversationElement) => {
     const subCount = Array.isArray(c.submissions) ? (c.submissions[0]?.count ?? 0) : 0;
@@ -59,9 +82,53 @@ export default async function TeacherAssignmentsPage() {
     return graded || subCount > 0 || chatActive.has(c.id);
   };
 
+  const statusKeyFor = (a: AssignmentRow, c: ConversationElement): TeacherStatusKey => {
+    const subCount = Array.isArray(c.submissions) ? (c.submissions[0]?.count ?? 0) : 0;
+    const graded = c.grades?.grade !== undefined && c.grades?.grade !== null;
+    return computeAssignmentStatus({
+      role: "teacher",
+      status: c.status,
+      closedBy: c.closed_by,
+      hasGrade: graded,
+      hasSubmission: subCount > 0 || chatActive.has(c.id),
+      hasStudentMessage: chatActive.has(c.id),
+      dueAt: a.due_at ?? null,
+      nowMs
+    }) as TeacherStatusKey;
+  };
+
+  const activeItems: ActiveHomeworkItem[] = rows
+    .filter(
+      (a) =>
+        a.status === "published" &&
+        (a.due_at === null || new Date(a.due_at).getTime() >= nowMs) &&
+        (a.conversations ?? []).some((c) => c.status === "active")
+    )
+    .map((a) => {
+      const convs = a.conversations ?? [];
+      const statusCounts: Partial<Record<TeacherStatusKey, number>> = {};
+      for (const c of convs) {
+        const key = statusKeyFor(a, c);
+        statusCounts[key] = (statusCounts[key] ?? 0) + 1;
+      }
+      return {
+        id: a.id,
+        title: a.title,
+        className: a.classes?.name ?? null,
+        due_at: a.due_at,
+        max_grade: a.max_grade,
+        total: convs.length,
+        statusCounts
+      };
+    });
+
+  const activeTab: TeacherStatusKey | "all" =
+    status !== undefined && status !== "all" && isTeacherStatusKey(status) ? status : "all";
+  const showActiveView = status !== undefined && (status === "all" || isTeacherStatusKey(status));
+
   const formatDue = (due: string | null) => {
     if (!due) return "بدون موعد";
-    return new Date(due).toLocaleString("ar", { dateStyle: "medium", timeStyle: "short" });
+    return formatAppDate(due);
   };
 
   return (
@@ -73,24 +140,27 @@ export default async function TeacherAssignmentsPage() {
               <ClipboardList className="size-5 text-primary" />
             </span>
             <div>
-              <h1 className="text-[var(--text-h1)] font-extrabold">الواجبات</h1>
-              <p className="mt-0.5 text-sm text-muted-foreground">تابع تسليمات طلابك لكل واجب</p>
+              <h1 className="text-[var(--text-h1)] font-extrabold">
+                {showActiveView ? "الواجبات النشطة" : "الواجبات"}
+              </h1>
+              <p className="mt-0.5 text-sm text-muted-foreground">
+                {showActiveView ? "واجبات الأسبوع الحالي فقط" : "تابع تسليمات طلابك لكل واجب"}
+              </p>
             </div>
           </div>
-          <Button asChild variant="ghost" size="sm" className="text-muted-foreground">
-            <Link href="/teacher" className="gap-1">
-              <ArrowLeft className="size-4" />
-              رجوع
-            </Link>
-          </Button>
+          <BackButton fallbackHref="/teacher" />
         </header>
 
+        {showActiveView ? (
+          <ActiveHomeworksView items={activeItems} initialTab={activeTab} />
+        ) : (
         <div className="grid gap-2.5">
           {rows.map((a) => {
             const convs = a.conversations ?? [];
             const submittedCount = convs.filter(hasActivity).length;
             const notSubmittedCount = convs.length - submittedCount;
             const isDraft = a.status === "draft";
+            const ended = !isDraft && a.due_at !== null && new Date(a.due_at).getTime() < nowMs;
             return (
               <Link
                 key={a.id}
@@ -104,7 +174,9 @@ export default async function TeacherAssignmentsPage() {
                   <div className="min-w-0 flex-1 space-y-1.5">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="truncate text-base font-bold">{a.title}</span>
-                      <Badge variant={isDraft ? "secondary" : "success"}>{isDraft ? "مسودة" : "منشور"}</Badge>
+                      <Badge variant={isDraft ? "secondary" : ended ? "secondary" : "success"}>
+                        {isDraft ? "مسودة" : ended ? "منتهي" : "نشط"}
+                      </Badge>
                     </div>
                     <div className="truncate text-xs text-muted-foreground">
                       {a.classes?.name ? `فصل ${a.classes.name}` : "بدون صف"}
@@ -133,6 +205,7 @@ export default async function TeacherAssignmentsPage() {
             </p>
           ) : null}
         </div>
+        )}
       </PageShell>
       <AppNav role="teacher" />
     </>

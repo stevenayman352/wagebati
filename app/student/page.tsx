@@ -3,8 +3,10 @@ import { NotificationBell } from "@/components/notification-bell";
 import { AppNav } from "@/components/app-nav";
 import { PageShell } from "@/components/page-shell";
 import { AssignmentItem } from "@/components/assignment-item";
+import { cacheLife, cacheTag } from "next/cache";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { ensureOverdueConversationsClosed } from "@/lib/close-overdue";
 import { NotificationGate } from "@/components/notification-gate";
 import { fetchStudentChatActivity } from "@/lib/assignment-activity";
 import {
@@ -47,13 +49,11 @@ const STATUS_TITLES = {
   completed: STATUS_LABEL.completed
 } as const;
 
-export default async function StudentPage({
-  searchParams
-}: {
-  searchParams: Promise<{ tab?: string }>;
-}) {
-  const profile = await requireRole(["student"]);
-  const { tab } = await searchParams;
+async function loadStudentDashboard(studentId: string) {
+  "use cache: private";
+  cacheTag(`student-dashboard:${studentId}`);
+  cacheLife({ stale: 60 });
+
   const supabase = await createSupabaseServerClient();
 
   const [convRes, unreadRes] = await Promise.all([
@@ -62,18 +62,35 @@ export default async function StudentPage({
       .select(
         "id, status, closed_by, closed_at, grades(grade), submissions(count), assignment:assignments!inner(title, due_at, max_grade, status, classes!inner(name))"
       )
-      .eq("student_id", profile.id)
+      .eq("student_id", studentId)
       .order("created_at", { ascending: false }),
     supabase
       .from("notifications")
       .select("id", { count: "exact", head: true })
-      .eq("user_id", profile.id)
+      .eq("user_id", studentId)
       .eq("is_read", false)
   ]);
-  const raw = convRes.data;
-  const unreadCount = unreadRes.count;
+  const rows = (convRes.data ?? []) as unknown as Row[];
 
-  const rows = (raw ?? []) as unknown as Row[];
+  const conversationIds = rows.map((r) => r.id);
+  const chatActive = await fetchStudentChatActivity(supabase, conversationIds);
+
+  return {
+    rows,
+    unreadCount: unreadRes.count ?? 0,
+    chatActivityIds: [...chatActive]
+  };
+}
+
+export default async function StudentPage({
+  searchParams
+}: {
+  searchParams: Promise<{ tab?: string }>;
+}) {
+  const profile = await requireRole(["student"]);
+  const { tab } = await searchParams;
+
+  void ensureOverdueConversationsClosed();
 
   if (tab === "account") {
     return (
@@ -109,8 +126,10 @@ export default async function StudentPage({
     );
   }
 
-  const conversationIds = rows.map((r) => r.id);
-  const chatActive = await fetchStudentChatActivity(supabase, conversationIds);
+  const data = await loadStudentDashboard(profile.id);
+  const rows = data.rows;
+  const unreadCount = data.unreadCount;
+  const chatActive = new Set(data.chatActivityIds);
 
   // eslint-disable-next-line react-hooks/purity
   const nowMs = Date.now();

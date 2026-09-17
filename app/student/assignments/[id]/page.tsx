@@ -1,7 +1,6 @@
 import { notFound } from "next/navigation";
-import Link from "next/link";
-import { Button } from "@/components/ui/button";
 import { AppNav } from "@/components/app-nav";
+import { BackButton } from "@/components/back-button";
 import { LiveConversationPanel } from "@/components/live-conversation-panel";
 import { SubmissionHistory } from "@/components/submission-history";
 import { LiveGradeRefresh } from "@/components/live-grade-refresh";
@@ -11,7 +10,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { formatDueDate } from "@/components/due-date-card";
 import { computeAssignmentStatus, type StudentStatusKey } from "@/lib/assignment-status";
 import { StatusPill } from "@/components/status-chip";
-import { ArrowRight, Paperclip, ChevronDown, CalendarDays } from "lucide-react";
+import { Paperclip, ChevronDown, CalendarDays } from "lucide-react";
 
 type SubmissionImage = {
   id: string;
@@ -143,12 +142,7 @@ export default async function StudentAssignmentPage({ params }: { params: Promis
       <div className="relative flex h-dvh flex-col overflow-hidden">
         <header className="z-30 flex flex-col gap-3 border-b border-border/60 bg-card/95 px-4 pt-3.5 pb-3 shadow-sm backdrop-blur-xl md:px-6">
           <div className="mx-auto flex w-full max-w-5xl items-center gap-3">
-            <Button asChild variant="ghost" size="sm" className="-mx-2 shrink-0 text-muted-foreground">
-              <Link href="/student" className="gap-1.5">
-                <ArrowRight className="size-4" />
-                رجوع
-              </Link>
-            </Button>
+            <BackButton fallbackHref="/student" />
             <div className="min-w-0 flex-1">
               <h1 className="line-clamp-2 break-words text-xl font-extrabold leading-snug md:text-2xl">{conv.assignment?.title}</h1>
             </div>

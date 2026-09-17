@@ -3,6 +3,7 @@ import { AdminSection } from "@/components/admin-section";
 import { AccountsFilter } from "@/components/accounts-filter";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { cacheLife, cacheTag } from "next/cache";
 import { Users } from "lucide-react";
 
 const errorMessages: Record<string, string> = {
@@ -24,20 +25,18 @@ type Row = {
   created_at: string;
 };
 
-export default async function AdminAccountsPage({
-  searchParams
-}: {
-  searchParams: Promise<{ error?: string }>;
-}) {
-  const params = await searchParams;
-  const profile = await requireRole(["admin"]);
+async function loadAdminAccounts(profileId: string) {
+  "use cache: private";
+  cacheTag(`accounts:${profileId}`);
+  cacheLife({ stale: 60 });
+
   const supabase = await createSupabaseServerClient();
 
   const [{ count: unreadCount }, usersRes, classesRes, studentsRes, teachersRes] = await Promise.all([
     supabase
       .from("notifications")
       .select("id", { count: "exact", head: true })
-      .eq("user_id", profile.id)
+      .eq("user_id", profileId)
       .eq("is_read", false),
     supabase.from("profiles").select("id, full_name, email, code, role, is_active, must_change_password, initial_password, created_at").order("created_at", { ascending: false }),
     supabase.from("classes").select("id, name"),
@@ -45,24 +44,43 @@ export default async function AdminAccountsPage({
     supabase.from("class_teachers").select("class_id, teacher_id")
   ]);
 
-  const classNames = new Map<string, string>((classesRes.data ?? []).map((c) => [c.id as string, c.name as string]));
+  return {
+    unreadCount: unreadCount ?? 0,
+    users: (usersRes.data ?? []) as unknown as Row[],
+    classNames: (classesRes.data ?? []).map((c) => ({ id: c.id as string, name: c.name as string })),
+    studentLinks: (studentsRes.data ?? []).map((s) => ({ classId: s.class_id as string, userId: s.student_id as string })),
+    teacherLinks: (teachersRes.data ?? []).map((t) => ({ classId: t.class_id as string, userId: t.teacher_id as string }))
+  };
+}
+
+export default async function AdminAccountsPage({
+  searchParams
+}: {
+  searchParams: Promise<{ error?: string }>;
+}) {
+  const params = await searchParams;
+  const profile = await requireRole(["admin"]);
+
+  const data = await loadAdminAccounts(profile.id);
+
+  const classNames = new Map<string, string>(data.classNames.map((c) => [c.id, c.name]));
   const userClasses = new Map<string, string[]>();
-  (studentsRes.data ?? []).forEach((s) => {
-    const name = classNames.get(s.class_id as string);
+  data.studentLinks.forEach((l) => {
+    const name = classNames.get(l.classId);
     if (!name) return;
-    const arr = userClasses.get(s.student_id as string) ?? [];
+    const arr = userClasses.get(l.userId) ?? [];
     if (!arr.includes(name)) arr.push(name);
-    userClasses.set(s.student_id as string, arr);
+    userClasses.set(l.userId, arr);
   });
-  (teachersRes.data ?? []).forEach((t) => {
-    const name = classNames.get(t.class_id as string);
+  data.teacherLinks.forEach((l) => {
+    const name = classNames.get(l.classId);
     if (!name) return;
-    const arr = userClasses.get(t.teacher_id as string) ?? [];
+    const arr = userClasses.get(l.userId) ?? [];
     if (!arr.includes(name)) arr.push(name);
-    userClasses.set(t.teacher_id as string, arr);
+    userClasses.set(l.userId, arr);
   });
 
-  const rows = ((usersRes.data ?? []) as unknown as Row[]).map((u) => ({
+  const rows = data.users.map((u) => ({
     ...u,
     classes: userClasses.get(u.id) ?? []
   }));
@@ -70,7 +88,7 @@ export default async function AdminAccountsPage({
   const errorText = params.error ? errorMessages[params.error] ?? null : null;
 
   return (
-    <AdminLayout profile={profile} title="الحسابات" subtitle="إدارة الحسابات" unread={unreadCount ?? 0}>
+    <AdminLayout profile={profile} title="الحسابات" subtitle="إدارة الحسابات" unread={data.unreadCount}>
       <AdminSection icon={Users} title="الحسابات" subtitle="فعّل أو أوقف الحسابات، اعرض تفاصيلها، أو احذفها.">
         <AccountsFilter rows={rows} errorText={errorText} />
       </AdminSection>

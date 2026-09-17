@@ -103,29 +103,32 @@ describe("buildXlsxBuffer", () => {
     expect(sheet["A1"].v).toContain("الصف السادس");
     expect(sheet["A1"].v).toContain("كشف درجات الواجبات");
 
-    // header row 2: name | code | homework 1 | homework 2 | total
-    expect(sheet["A2"].v).toBe("الاسم");
-    expect(sheet["B2"].v).toBe("الكود");
-    expect(String(sheet["C2"].v)).toContain("واجب ١");
-    expect(String(sheet["C2"].v)).toContain("(من 20)");
+    // header row 2: م (index) | name | code | homework 2 (oldest) | homework 1 (newest) | total
+    expect(sheet["A2"].v).toBe("م");
+    expect(sheet["B2"].v).toBe("الاسم");
+    expect(sheet["C2"].v).toBe("الكود");
     expect(String(sheet["D2"].v)).toContain("واجب ٢");
     expect(String(sheet["D2"].v)).toContain("(من 20)");
-    expect(String(sheet["E2"].v)).toContain("مجموع درجات الواجبات");
-    expect(String(sheet["E2"].v)).toContain("(من 40)");
+    expect(String(sheet["E2"].v)).toContain("واجب ١");
+    expect(String(sheet["E2"].v)).toContain("(من 20)");
+    expect(String(sheet["F2"].v)).toContain("مجموع درجات الواجبات");
+    expect(String(sheet["F2"].v)).toContain("(من 40)");
 
     // student row 1
-    expect(sheet["A3"].v).toBe("أحمد");
-    expect(sheet["B3"].v).toBe("1111");
-    expect(String(sheet["C3"].v)).toBe("18");
+    expect(sheet["A3"].v).toBe(1);
+    expect(sheet["B3"].v).toBe("أحمد");
+    expect(sheet["C3"].v).toBe("1111");
     expect(String(sheet["D3"].v)).toBe("20");
-    expect(String(sheet["E3"].v)).toBe("38");
+    expect(String(sheet["E3"].v)).toBe("18");
+    expect(String(sheet["F3"].v)).toBe("38");
 
     // student row 2
-    expect(sheet["A4"].v).toBe("محمد");
-    expect(sheet["B4"].v).toBe("2222");
-    expect(String(sheet["C4"].v)).toBe("15");
+    expect(sheet["A4"].v).toBe(2);
+    expect(sheet["B4"].v).toBe("محمد");
+    expect(sheet["C4"].v).toBe("2222");
     expect(String(sheet["D4"].v)).toBe("12");
-    expect(String(sheet["E4"].v)).toBe("27");
+    expect(String(sheet["E4"].v)).toBe("15");
+    expect(String(sheet["F4"].v)).toBe("27");
   });
 
   it("shows each homework max grade in the header and their sum in the total column", async () => {
@@ -138,10 +141,10 @@ describe("buildXlsxBuffer", () => {
     const wb = read(buf, { type: "array" });
     const sheet = wb.Sheets[wb.SheetNames[0]];
 
-    expect(String(sheet["C2"].v)).toContain("(من 25)");
     expect(String(sheet["D2"].v)).toContain("(من 30)");
-    expect(String(sheet["E2"].v)).toContain("مجموع درجات الواجبات");
-    expect(String(sheet["E2"].v)).toContain("(من 55)");
+    expect(String(sheet["E2"].v)).toContain("(من 25)");
+    expect(String(sheet["F2"].v)).toContain("مجموع درجات الواجبات");
+    expect(String(sheet["F2"].v)).toContain("(من 55)");
   });
 
   it("keeps long homework names fully visible with their max grade in brackets", async () => {
@@ -155,11 +158,11 @@ describe("buildXlsxBuffer", () => {
     const wb = read(buf, { type: "array" });
     const sheet = wb.Sheets[wb.SheetNames[0]];
 
-    const header = String(sheet["C2"].v);
+    const header = String(sheet["E2"].v);
     const name = header.split("\n").filter(Boolean).slice(0, -1).join(" ").trim();
     expect(name).toBe(title);
     expect(header).toContain("(من 25)");
-    expect(String(sheet["E2"].v)).toContain("(من 55)");
+    expect(String(sheet["F2"].v)).toContain("(من 55)");
   });
 
   it("handles empty input with a readable banner", async () => {

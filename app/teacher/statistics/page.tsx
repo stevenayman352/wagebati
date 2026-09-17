@@ -1,10 +1,11 @@
-import Link from "next/link";
+import { cacheLife, cacheTag } from "next/cache";
 import { requireRole } from "@/lib/auth";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { PageShell } from "@/components/page-shell";
 import { AppNav } from "@/components/app-nav";
-import { Button } from "@/components/ui/button";
-import { ArrowLeft, BarChart3 } from "lucide-react";
+import { BarChart3 } from "lucide-react";
+import { BackButton } from "@/components/back-button";
 import { fetchStudentChatActivity } from "@/lib/assignment-activity";
 import {
   computeAssignmentStatus,
@@ -20,6 +21,8 @@ type AssignmentRow = {
   id: string;
   title: string;
   due_at: string | null;
+  class_id: string | null;
+  teacher?: { full_name: string } | null;
   classes?: { name: string } | null;
 };
 
@@ -31,22 +34,26 @@ type ConversationRow = {
   student?: { full_name: string; code: string } | null;
 };
 
-export default async function TeacherStatisticsPage() {
-  const profile = await requireRole(["teacher", "admin"]);
+async function loadTeacherStatistics(profileId: string, role: string) {
+  "use cache: private";
+  cacheTag(`statistics:${profileId}`);
+  cacheLife({ stale: 60 });
+
   const supabase = await createSupabaseServerClient();
+  const admin = createSupabaseAdminClient();
 
   let teacherClassIds: string[] | null = null;
-  if (profile.role !== "admin") {
+  if (role !== "admin") {
     const { data } = await supabase
       .from("class_teachers")
       .select("class_id")
-      .eq("teacher_id", profile.id);
+      .eq("teacher_id", profileId);
     teacherClassIds = (data ?? []).map((c) => c.class_id as string);
   }
 
-  let assignmentQuery = supabase
+  let assignmentQuery = admin
     .from("assignments")
-    .select("id, title, due_at, classes!inner(name)")
+    .select("id, title, due_at, class_id, teacher:profiles!assignments_teacher_id_fkey(full_name), classes!inner(name)")
     .eq("status", "published")
     .order("created_at", { ascending: false });
   if (teacherClassIds)
@@ -57,6 +64,24 @@ export default async function TeacherStatisticsPage() {
 
   const { data: assignmentRows } = await assignmentQuery;
   const assignments = (assignmentRows ?? []) as unknown as AssignmentRow[];
+
+  const classIds = [
+    ...new Set(assignments.map((a) => a.class_id).filter((c): c is string => Boolean(c)))
+  ];
+  const teacherByClass = new Map<string, string[]>();
+  if (classIds.length) {
+    const { data: teacherRows } = await admin
+      .from("class_teachers")
+      .select("class_id, teacher:profiles!class_teachers_teacher_id_fkey(full_name)")
+      .in("class_id", classIds);
+    for (const row of teacherRows ?? []) {
+      const name = (row.teacher as unknown as { full_name: string } | null)?.full_name;
+      if (!row.class_id || !name) continue;
+      const list = teacherByClass.get(row.class_id) ?? [];
+      list.push(name);
+      teacherByClass.set(row.class_id, list);
+    }
+  }
 
   const assignmentIds = assignments.map((a) => a.id);
   const { data: convRows } = assignmentIds.length
@@ -78,8 +103,26 @@ export default async function TeacherStatisticsPage() {
   ]);
   const chatActive = await fetchStudentChatActivity(supabase, conversationIds);
 
-  const submittedIds = new Set((subsRes.data ?? []).map((s) => s.conversation_id as string));
-  const gradedIds = new Set((gradesRes.data ?? []).map((g) => g.conversation_id as string));
+  return {
+    assignments,
+    conversations,
+    teacherByClass,
+    submittedIds: (subsRes.data ?? []).map((s) => s.conversation_id as string),
+    gradedIds: (gradesRes.data ?? []).map((g) => g.conversation_id as string),
+    chatActivityIds: [...chatActive]
+  };
+}
+
+export default async function TeacherStatisticsPage() {
+  const profile = await requireRole(["teacher", "admin"]);
+
+  const data = await loadTeacherStatistics(profile.id, profile.role);
+  const { assignments, conversations } = data;
+  const teacherByClass = data.teacherByClass;
+
+  const submittedIds = new Set(data.submittedIds);
+  const gradedIds = new Set(data.gradedIds);
+  const chatActive = new Set(data.chatActivityIds);
 
   // eslint-disable-next-line react-hooks/purity
   const nowMs = Date.now();
@@ -116,11 +159,16 @@ export default async function TeacherStatisticsPage() {
       });
     }
 
+    const teacherNames = teacherByClass.get(a.class_id ?? "") ?? [];
+    const ownTeacher = (a.teacher as unknown as { full_name: string } | null)?.full_name;
+    if (ownTeacher && !teacherNames.includes(ownTeacher)) teacherNames.push(ownTeacher);
+
     return {
       id: a.id,
       title: a.title,
       dueAt: a.due_at,
       className: a.classes?.name ?? null,
+      teacherNames,
       counts: Object.fromEntries(counts) as Record<TeacherStatusKey, number>,
       students
     };
@@ -139,12 +187,7 @@ export default async function TeacherStatisticsPage() {
               <p className="mt-0.5 text-sm text-muted-foreground">كل واجب، وأسماء طلابه حسب الحالة</p>
             </div>
           </div>
-          <Button asChild variant="ghost" size="sm" className="text-muted-foreground">
-            <Link href="/teacher" className="gap-1">
-              <ArrowLeft className="size-4" />
-              رجوع
-            </Link>
-          </Button>
+          <BackButton fallbackHref="/teacher" />
         </header>
 
         <TeacherStatistics homeworkStats={homeworkStats} />

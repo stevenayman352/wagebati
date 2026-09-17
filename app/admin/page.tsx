@@ -9,17 +9,21 @@ import { createAccountAction, createClassAction, importAccountsAction } from "@/
 import { ImportAccountsForm } from "@/components/import-accounts-form";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { cacheLife, cacheTag } from "next/cache";
 import { UserPlus, FolderKanban, FileSpreadsheet } from "lucide-react";
 
-export default async function AdminHomePage() {
-  const profile = await requireRole(["admin"]);
+async function loadAdminHome(profileId: string) {
+  "use cache: private";
+  cacheTag(`admin-home:${profileId}`);
+  cacheLife({ stale: 60 });
+
   const supabase = await createSupabaseServerClient();
 
   const [{ count: unreadCount }, classesRes] = await Promise.all([
     supabase
       .from("notifications")
       .select("id", { count: "exact", head: true })
-      .eq("user_id", profile.id)
+      .eq("user_id", profileId)
       .eq("is_read", false),
     supabase
       .from("classes")
@@ -27,14 +31,23 @@ export default async function AdminHomePage() {
       .order("created_at", { ascending: false })
   ]);
 
-  const classes = (classesRes.data ?? []).map((c) => ({ id: c.id as string, name: c.name as string }));
+  return {
+    unreadCount: unreadCount ?? 0,
+    classes: (classesRes.data ?? []).map((c) => ({ id: c.id as string, name: c.name as string }))
+  };
+}
+
+export default async function AdminHomePage() {
+  const profile = await requireRole(["admin"]);
+
+  const { unreadCount, classes } = await loadAdminHome(profile.id);
 
   return (
     <AdminLayout
       profile={profile}
       title={profile.full_name?.trim().split(/\s+/).slice(0, 2).join(" ") ? `أهلًا ${profile.full_name.trim().split(/\s+/).slice(0, 2).join(" ")}` : "لوحة الإدارة"}
       subtitle="الرئيسية"
-      unread={unreadCount ?? 0}
+      unread={unreadCount}
     >
       <div className="grid gap-5 lg:grid-cols-2">
         <AdminSection icon={UserPlus} title="حساب جديد" subtitle="أنشئ حسابًا واربطه بصفه مباشرة.">

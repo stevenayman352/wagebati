@@ -1,6 +1,6 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
@@ -11,8 +11,14 @@ import { MAX_IMPORT_FILE_BYTES, parseImportFile, validateImportRows } from "@/li
 import type { ActionState, ImportIssue } from "@/lib/types";
 import { verifyAdminPasswordAction } from "@/app/actions/auth";
 
+function invalidateAdminCaches(adminId: string) {
+  updateTag(`admin-home:${adminId}`);
+  updateTag(`accounts:${adminId}`);
+  updateTag(`classes:${adminId}`);
+}
+
 export async function createAccountAction(_: ActionState, formData: FormData): Promise<ActionState> {
-  await requireRole(["admin"]);
+  const profile = await requireRole(["admin"]);
   const parsed = accountSchema.safeParse({
     fullName: formData.get("fullName"),
     password: formData.get("password"),
@@ -71,12 +77,13 @@ export async function createAccountAction(_: ActionState, formData: FormData): P
     }
   }
 
+invalidateAdminCaches(profile.id);
 revalidatePath("/admin");
   return { ok: true, message: `تم إنشاء الحساب، كود الدخول: ${available.code}` };
 }
 
 export async function importAccountsAction(_: ActionState, formData: FormData): Promise<ActionState> {
-  await requireRole(["admin"]);
+  const profile = await requireRole(["admin"]);
 
   const file = formData.get("file");
   if (!(file instanceof File)) {
@@ -172,6 +179,7 @@ export async function importAccountsAction(_: ActionState, formData: FormData): 
     created += 1;
   }
 
+  invalidateAdminCaches(profile.id);
   revalidatePath("/admin");
   const rejected = reported.length;
   const summary = `تم إنشاء ${created} من أصل ${parsed.rows.length} حساب.`;
@@ -217,13 +225,14 @@ export async function createClassAction(_: ActionState, formData: FormData): Pro
   });
 
 if (error) return { ok: false, message: error.message };
+  invalidateAdminCaches(profile.id);
   revalidatePath("/admin");
   revalidatePath("/admin/classes");
   return { ok: true, message: "تم إنشاء الصف." };
 }
 
 export async function assignUserAction(_: ActionState, formData: FormData): Promise<ActionState> {
-  await requireRole(["admin"]);
+  const profile = await requireRole(["admin"]);
   const classId = uuidSchema.safeParse(formData.get("classId"));
   const userId = uuidSchema.safeParse(formData.get("userId"));
   const role = String(formData.get("membership"));
@@ -239,12 +248,13 @@ export async function assignUserAction(_: ActionState, formData: FormData): Prom
       : await supabase.from("class_students").upsert({ class_id: classId.data, student_id: userId.data });
 
   if (error) return { ok: false, message: error.message };
+  invalidateAdminCaches(profile.id);
   revalidatePath("/admin");
   return { ok: true, message: "تم ربط المستخدم بالصف." };
 }
 
 export async function unassignUserAction(_: ActionState, formData: FormData): Promise<ActionState> {
-  await requireRole(["admin"]);
+  const profile = await requireRole(["admin"]);
   const classId = uuidSchema.safeParse(formData.get("classId"));
   const userId = uuidSchema.safeParse(formData.get("userId"));
   const role = String(formData.get("membership"));
@@ -260,12 +270,13 @@ export async function unassignUserAction(_: ActionState, formData: FormData): Pr
       : await supabase.from("class_students").delete().eq("class_id", classId.data).eq("student_id", userId.data);
 
   if (error) return { ok: false, message: error.message };
+  invalidateAdminCaches(profile.id);
   revalidatePath("/admin");
   return { ok: true, message: "تم فك الربط." };
 }
 
 export async function toggleActiveAction(formData: FormData) {
-  await requireRole(["admin"]);
+  const profile = await requireRole(["admin"]);
   const userId = uuidSchema.safeParse(formData.get("userId"));
   const targetActive = formData.get("active") === "true";
 
@@ -274,13 +285,14 @@ export async function toggleActiveAction(formData: FormData) {
   const admin = createSupabaseAdminClient();
   const { error } = await admin.from("profiles").update({ is_active: targetActive }).eq("id", userId.data);
   if (error) redirect("/admin/accounts?error=toggle_failed");
+  invalidateAdminCaches(profile.id);
   revalidatePath("/admin");
   revalidatePath("/admin/accounts");
   redirect("/admin/accounts");
 }
 
 export async function resetPasswordAction(_: ActionState, formData: FormData): Promise<ActionState> {
-  await requireRole(["admin"]);
+  const profile = await requireRole(["admin"]);
   const userId = uuidSchema.safeParse(formData.get("userId"));
   const password = String(formData.get("password") ?? "");
 
@@ -296,12 +308,13 @@ export async function resetPasswordAction(_: ActionState, formData: FormData): P
     .eq("id", userId.data);
   if (profileError) return { ok: false, message: profileError.message };
 
+  invalidateAdminCaches(profile.id);
   revalidatePath("/admin");
   return { ok: true, message: "تمت إعادة تعيين كلمة المرور وسيُطلب تغييرها عند الدخول." };
 }
 
 export async function updateCodeAction(_: ActionState, formData: FormData): Promise<ActionState> {
-  await requireRole(["admin"]);
+  const profile = await requireRole(["admin"]);
   const userId = uuidSchema.safeParse(formData.get("userId"));
   const code = codeSchema.safeParse(formData.get("code"));
 
@@ -338,6 +351,7 @@ export async function updateCodeAction(_: ActionState, formData: FormData): Prom
     .eq("id", userId.data);
   if (profileError) return { ok: false, message: profileError.message };
 
+  invalidateAdminCaches(profile.id);
   revalidatePath("/admin");
   revalidatePath("/admin/reset-password");
   return { ok: true, message: `تم تحديث كود الطالب: ${code.data}` };
@@ -370,6 +384,7 @@ export async function deleteAccountAction(_: ActionState, formData: FormData): P
   const { error } = await admin.auth.admin.deleteUser(userId.data);
   if (error) return { ok: false, message: "تعذر حذف الحساب، حاول مجددًا." };
 
+  invalidateAdminCaches(profile.id);
   revalidatePath("/admin");
   revalidatePath("/admin/accounts");
   return { ok: true, message: "تم حذف الحساب بنجاح." };
@@ -410,13 +425,14 @@ export async function bulkDeleteAccountsAction(_: ActionState, formData: FormDat
     await admin.auth.admin.deleteUser(userId);
   }
 
+  invalidateAdminCaches(profile.id);
   revalidatePath("/admin");
   revalidatePath("/admin/accounts");
   return { ok: true, message: `تم حذف ${userIds.length} حساب بنجاح.` };
 }
 
 export async function deleteClassAction(_: ActionState, formData: FormData): Promise<ActionState> {
-  await requireRole(["admin"]);
+  const profile = await requireRole(["admin"]);
   const classId = uuidSchema.safeParse(formData.get("classId"));
   if (!classId.success) return { ok: false, message: "معرف الصف غير صالح." };
 
@@ -468,6 +484,7 @@ export async function deleteClassAction(_: ActionState, formData: FormData): Pro
     const { error } = await admin.from("classes").delete().eq("id", classId.data);
     if (error) throw error;
 
+    invalidateAdminCaches(profile.id);
     revalidatePath("/admin");
     revalidatePath("/admin/classes");
     return { ok: true, message: "تم حذف الصف وكافة البيانات المرتبطة به بنجاح." };

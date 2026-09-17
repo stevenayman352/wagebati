@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { AnimatePresence, animate, motion } from "motion/react";
-import { differenceInCalendarDays } from "date-fns";
 import {
   BarChart3,
   CalendarDays,
@@ -15,6 +14,7 @@ import {
 } from "lucide-react";
 import { STATUS_LABEL, TEACHER_STATUSES, type TeacherStatusKey } from "@/lib/assignment-status";
 import { statusVisual } from "@/components/status-chip";
+import { APP_TIME_ZONE, formatAppDate } from "@/lib/dates";
 import { cn } from "@/lib/utils";
 
 export type StatsStudent = {
@@ -28,18 +28,32 @@ export type HomeworkStat = {
   title: string;
   dueAt: string | null;
   className: string | null;
+  teacherNames: string[];
   counts: Record<TeacherStatusKey, number>;
   students: Record<TeacherStatusKey, StatsStudent[]>;
 };
 
 function formatDue(value: string | null) {
-  if (!value) return "بدون موعد";
-  return new Date(value).toLocaleString("ar", { dateStyle: "medium", timeStyle: "short" });
+  return formatAppDate(value);
+}
+
+function isOverdue(value: string | null): boolean {
+  return value !== null && new Date(value).getTime() < Date.now();
+}
+
+function schoolDayNumber(ms: number): number {
+  const day = new Intl.DateTimeFormat("en-CA", {
+    timeZone: APP_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(ms);
+  return Number(day.replace(/-/g, ""));
 }
 
 function relativeDue(value: string | null): string | null {
   if (!value) return null;
-  const days = differenceInCalendarDays(new Date(value), new Date());
+  const days = schoolDayNumber(new Date(value).getTime()) - schoolDayNumber(Date.now());
   if (days > 1) return `بقي ${days} يوم`;
   if (days === 1) return "آخر يوم غدًا";
   if (days === 0) return "آخر يوم اليوم";
@@ -139,6 +153,7 @@ export function TeacherStatistics({ homeworkStats }: { homeworkStats: HomeworkSt
         <div className="no-scrollbar flex gap-2 overflow-x-auto px-4 pb-1.5 md:px-0">
           {homeworkStats.map((h) => {
             const isActive = h.id === selectedId;
+            const overdue = isOverdue(h.dueAt);
             return (
               <button
                 key={h.id}
@@ -151,18 +166,40 @@ export function TeacherStatistics({ homeworkStats }: { homeworkStats: HomeworkSt
                 className={cn(
                   "flex shrink-0 flex-col items-start gap-1 rounded-2xl border px-3.5 py-2 text-start transition-all duration-200 active:scale-[0.97]",
                   isActive
-                    ? "border-primary/60 bg-primary text-primary-foreground shadow-raise"
-                    : "border-border/70 bg-card text-foreground hover:border-primary/40 hover:shadow-card"
+                    ? overdue
+                      ? "border-destructive bg-destructive text-white shadow-raise"
+                      : "border-primary/60 bg-primary text-primary-foreground shadow-raise"
+                    : overdue
+                      ? "border-destructive/40 bg-destructive/[0.04] text-foreground hover:border-destructive/60 hover:shadow-card"
+                      : "border-border/70 bg-card text-foreground hover:border-primary/40 hover:shadow-card"
                 )}
               >
-                <span className="max-w-44 truncate text-sm font-bold">{h.title}</span>
+                <span className="flex max-w-44 items-center gap-1.5">
+                  {overdue && (
+                    <span
+                      className={cn("size-1.5 shrink-0 rounded-full", isActive ? "bg-white" : "bg-destructive")}
+                    />
+                  )}
+                  <span className="truncate text-sm font-bold">{h.title}</span>
+                </span>
                 <span
                   className={cn(
                     "flex max-w-44 items-center gap-1 text-[0.68rem]",
-                    isActive ? "text-primary-foreground/85" : "text-muted-foreground"
+                    isActive
+                      ? overdue
+                        ? "text-white/85"
+                        : "text-primary-foreground/85"
+                      : overdue
+                        ? "text-destructive/80"
+                        : "text-muted-foreground"
                   )}
                 >
-                  <School className={cn("size-3 shrink-0", !isActive && "text-primary")} />
+                  <School
+                    className={cn(
+                      "size-3 shrink-0",
+                      !isActive && (overdue ? "text-destructive" : "text-primary")
+                    )}
+                  />
                   <span dir="auto" className="min-w-0 truncate">
                     {h.className ?? "بدون صف"}
                   </span>
@@ -205,9 +242,32 @@ export function TeacherStatistics({ homeworkStats }: { homeworkStats: HomeworkSt
                   <School className="size-3.5 text-primary" />
                   فصل {selected.className ?? "غير معروف"}
                 </span>
+                {selected.teacherNames.length > 0 ? (
+                  <span className="inline-flex flex-wrap items-center gap-1.5">
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 font-semibold">
+                      <Users className="size-3.5 text-primary" />
+                      المدرسون
+                    </span>
+                    {selected.teacherNames.map((name) => (
+                      <span
+                        key={name}
+                        className="inline-flex items-center rounded-full bg-primary/10 px-2.5 py-1 font-semibold text-primary"
+                      >
+                        {name}
+                      </span>
+                    ))}
+                  </span>
+                ) : null}
               </div>
             </div>
-            <div className="flex shrink-0 items-center gap-1.5 rounded-2xl border border-primary/20 bg-primary/[0.04] px-3 py-2 text-sm font-bold text-primary">
+            <div
+              className={cn(
+                "flex shrink-0 items-center gap-1.5 rounded-2xl border px-3 py-2 text-sm font-bold",
+                isOverdue(selected.dueAt)
+                  ? "border-destructive/25 bg-destructive/[0.06] text-destructive"
+                  : "border-primary/20 bg-primary/[0.04] text-primary"
+              )}
+            >
               <CalendarDays className="size-4" />
               {formatDue(selected.dueAt)}
             </div>
@@ -222,7 +282,14 @@ export function TeacherStatistics({ homeworkStats }: { homeworkStats: HomeworkSt
               <div>
                 <h2 className="text-[var(--text-h2)] font-bold">إحصائيات واجبات الأسبوع الحالي</h2>
                 {selected.dueAt ? (
-                  <p className="text-xs text-muted-foreground">{relativeDue(selected.dueAt)}</p>
+                  <p
+                    className={cn(
+                      "text-xs",
+                      isOverdue(selected.dueAt) ? "font-bold text-destructive" : "text-muted-foreground"
+                    )}
+                  >
+                    {relativeDue(selected.dueAt)}
+                  </p>
                 ) : null}
               </div>
             </div>
@@ -268,6 +335,7 @@ export function TeacherStatistics({ homeworkStats }: { homeworkStats: HomeworkSt
                           >
                             <Link
                               href={`/teacher/conversations/${s.conversationId}`}
+                              prefetch={true}
                               className="group flex items-center gap-3 rounded-xl border border-border/70 bg-card p-3 transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-raise active:translate-y-0"
                             >
                               <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-extrabold text-primary">

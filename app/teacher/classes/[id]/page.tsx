@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { cacheLife, cacheTag } from "next/cache";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { StudentSearch } from "@/components/student-search";
@@ -7,53 +8,88 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { PageShell } from "@/components/page-shell";
 import { AppNav } from "@/components/app-nav";
-import { FileText, ArrowLeft, Users, GraduationCap, ChevronUp, Download } from "lucide-react";
+import { FileText, Users, GraduationCap, ChevronUp, Download } from "lucide-react";
+import { BackButton } from "@/components/back-button";
 
-export default async function TeacherClassPage({ params }: { params: Promise<{ id: string }> }) {
-  await requireRole(["teacher", "admin"]);
-  const { id } = await params;
+type ClassData = {
+  id: string;
+  name: string;
+  grade_label: string | null;
+};
+
+type StudentItem = {
+  student_id: string;
+  students?: { full_name: string; code: string } | null;
+};
+
+type AssignmentItem = {
+  id: string;
+  title: string;
+  status: string;
+  due_at: string | null;
+  max_grade: number;
+};
+
+async function loadTeacherClass(profileId: string, classId: string) {
+  "use cache: private";
+  cacheTag(`teacher-classes:${profileId}`);
+  cacheLife({ stale: 60 });
+
   const supabase = await createSupabaseServerClient();
 
   const [{ data: klass }, teachersData, studentsData, assignmentsData] = await Promise.all([
     supabase
       .from("classes")
       .select("id, name, grade_label")
-      .eq("id", id)
+      .eq("id", classId)
       .single(),
     supabase
       .from("class_teachers")
       .select("teacher:profiles!class_teachers_teacher_id_fkey(full_name)")
-      .eq("class_id", id),
+      .eq("class_id", classId),
     supabase
       .from("class_students")
       .select("student_id, students:profiles!class_students_student_id_fkey(full_name, code)")
-      .eq("class_id", id),
+      .eq("class_id", classId),
     supabase
       .from("assignments")
       .select("id, title, status, due_at, max_grade")
-      .eq("class_id", id)
+      .eq("class_id", classId)
       .eq("status", "published")
       .order("created_at", { ascending: false })
   ]);
-  if (!klass) notFound();
+  if (!klass) return null;
 
-  const klassFull = klass as unknown as { name: string; grade_label: string };
+  const klassFull = klass as unknown as ClassData;
   const teacherNames = (teachersData.data ?? [])
     .map((t) => (t.teacher as unknown as { full_name: string } | null)?.full_name ?? "-")
     .filter((n) => n !== "-");
-  const students = (studentsData.data ?? []) as unknown as { student_id: string; students?: { full_name: string; code: string } | null }[];
-  const assignments = (assignmentsData.data ?? []) as unknown as { id: string; title: string; status: string; due_at: string | null; max_grade: number }[];
+
+  return {
+    klass: klassFull,
+    teacherNames,
+    students: (studentsData.data ?? []) as unknown as StudentItem[],
+    assignments: (assignmentsData.data ?? []) as unknown as AssignmentItem[]
+  };
+}
+
+export default async function TeacherClassPage({ params }: { params: Promise<{ id: string }> }) {
+  const profile = await requireRole(["teacher", "admin"]);
+  const { id } = await params;
+
+  const data = await loadTeacherClass(profile.id, id);
+  if (!data) notFound();
+
+  const klassFull = data.klass;
+  const teacherNames = data.teacherNames;
+  const students = data.students;
+  const assignments = data.assignments;
 
   return (
     <>
       <PageShell wide>
         <div className="mb-5 flex items-center justify-between gap-3">
-          <Button asChild variant="ghost" size="sm" className="-mx-2 text-muted-foreground">
-            <Link href="/teacher/classes" className="gap-1.5">
-              <ArrowLeft className="size-4" />
-              الفصول
-            </Link>
-          </Button>
+          <BackButton fallbackHref="/teacher/classes" />
           <div className="flex items-center gap-1.5">
             <Button asChild variant="outline" size="sm">
               <a href={`/preview?target=class&format=xlsx&id=${id}`} className="gap-1.5">
@@ -135,7 +171,7 @@ export default async function TeacherClassPage({ params }: { params: Promise<{ i
               {assignments.map((a) => (
                 <Link
                   key={a.id}
-                  href={`/teacher/conversations?assignment=${a.id}`}
+                  href={`/teacher/assignments/${a.id}`}
                   className="flex items-center justify-between gap-2 rounded-xl border border-border/70 px-3 py-2.5 transition-colors hover:border-primary/40 hover:bg-muted/40"
                 >
                   <div className="flex items-center gap-2.5">

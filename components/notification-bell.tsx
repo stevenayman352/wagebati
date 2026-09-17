@@ -23,6 +23,7 @@ const TYPE_LABEL: Record<string, string> = {
   grade_recorded: "درجة",
   revision: "مراجعة",
   closed: "إغلاق",
+  reopened: "إعادة فتح",
   submission: "حل جديد",
   message: "رسالة",
   new_assignment: "واجب جديد",

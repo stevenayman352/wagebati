@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { cacheLife, cacheTag } from "next/cache";
 import { Badge } from "@/components/ui/badge";
 import { PageShell } from "@/components/page-shell";
 import { AppNav } from "@/components/app-nav";
@@ -7,25 +8,28 @@ import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { Users, ChevronUp } from "lucide-react";
 
-export default async function TeacherClassesPage() {
-  const profile = await requireRole(["teacher", "admin"]);
+async function loadTeacherClasses(profileId: string, role: string) {
+  "use cache: private";
+  cacheTag(`teacher-classes:${profileId}`);
+  cacheLife({ stale: 60 });
+
   const supabase = await createSupabaseServerClient();
 
   const [{ count: unreadCount }, myClassesRes, enrollRes] = await Promise.all([
     supabase
       .from("notifications")
       .select("id", { count: "exact", head: true })
-      .eq("user_id", profile.id)
+      .eq("user_id", profileId)
       .eq("is_read", false),
     supabase
       .from("class_teachers")
       .select("class_id")
-      .eq("teacher_id", profile.id),
+      .eq("teacher_id", profileId),
     supabase.from("class_students").select("class_id, student_id")
   ]);
   const myClasses = myClassesRes.data;
 
-  const classIds = profile.role === "admin"
+  const classIds = role === "admin"
     ? null
     : (myClasses ?? []).map((r) => r.class_id as string);
 
@@ -33,11 +37,23 @@ export default async function TeacherClassesPage() {
   if (classIds) classesQuery = classesQuery.in("id", classIds.length ? classIds : ["00000000-0000-0000-0000-000000000000"]);
   const { data: classes } = await classesQuery;
 
+  return {
+    unreadCount: unreadCount ?? 0,
+    classes: (classes ?? []) as { id: string; name: string; grade_label: string | null }[],
+    enrollments: (enrollRes.data ?? []).map((e) => (e as { class_id: string }).class_id)
+  };
+}
+
+export default async function TeacherClassesPage() {
+  const profile = await requireRole(["teacher", "admin"]);
+
+  const data = await loadTeacherClasses(profile.id, profile.role);
+
   const studentCounts = new Map<string, number>();
-  for (const e of enrollRes.data ?? []) {
-    const cid = e.class_id as string;
+  for (const cid of data.enrollments) {
     studentCounts.set(cid, (studentCounts.get(cid) ?? 0) + 1);
   }
+  const classes = data.classes;
 
   return (
     <>
@@ -48,7 +64,7 @@ export default async function TeacherClassesPage() {
             <p className="mt-0.5 text-sm text-muted-foreground">أختر الفصل للاطلاع على طلابه</p>
           </div>
           <div className="flex items-center gap-1.5">
-            <NotificationBell userId={profile.id} initialUnread={unreadCount ?? 0} />
+            <NotificationBell userId={profile.id} initialUnread={data.unreadCount} />
           </div>
         </header>
 

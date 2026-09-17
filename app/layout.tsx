@@ -40,7 +40,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="ar" dir="rtl" className={cn("font-sans", cairo.variable, amiri.variable)}>
       <body>
-        <PwaRegister />
+        <Suspense fallback={null}>
+          <PwaRegister />
+        </Suspense>
         <SplashScreen />
         <Suspense fallback={null}>
           <NavigationLoading />

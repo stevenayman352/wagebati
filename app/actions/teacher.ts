@@ -1,6 +1,6 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
@@ -10,9 +10,22 @@ import {
   assignmentUpdateSchema,
   attachmentSchema,
   gradeSchema,
+  reopenAssignmentSchema,
   uuidFormSchema
 } from "@/lib/validators";
 import type { ActionState } from "@/lib/types";
+
+function invalidateTeacherCache(userId: string) {
+  updateTag(`teacher-dashboard:${userId}`);
+  updateTag(`conversations:${userId}`);
+  updateTag(`assignments:${userId}`);
+  updateTag(`statistics:${userId}`);
+  updateTag(`teacher-classes:${userId}`);
+}
+
+function invalidateStudentDashboard(studentId: string) {
+  updateTag(`student-dashboard:${studentId}`);
+}
 
 export async function createAssignmentAction(_: ActionState, formData: FormData): Promise<ActionState> {
   const profile = await requireRole(["teacher", "admin"]);
@@ -20,8 +33,7 @@ export async function createAssignmentAction(_: ActionState, formData: FormData)
     classId: formData.get("classId"),
     title: formData.get("title"),
     instructions: formData.get("instructions"),
-    dueDate: formData.get("dueDate"),
-    dueTime: formData.get("dueTime"),
+    dueAt: formData.get("dueAt"),
     maxGrade: formData.get("maxGrade")
   });
 
@@ -33,7 +45,7 @@ export async function createAssignmentAction(_: ActionState, formData: FormData)
     teacher_id: profile.id,
     title: parsed.data.title,
     instructions: parsed.data.instructions,
-    due_at: new Date(`${parsed.data.dueDate}T${parsed.data.dueTime}`).toISOString(),
+    due_at: parsed.data.dueAt,
     max_grade: parsed.data.maxGrade,
     status: "published",
     published_at: new Date().toISOString(),
@@ -41,18 +53,18 @@ export async function createAssignmentAction(_: ActionState, formData: FormData)
   });
 
   if (error) return { ok: false, message: error.message };
+  invalidateTeacherCache(profile.id);
   revalidatePath("/teacher");
   return { ok: true, message: "تم نشر الواجب." };
 }
 
 export async function updateAssignmentAction(_: ActionState, formData: FormData): Promise<ActionState> {
-  await requireRole(["teacher", "admin"]);
+  const profile = await requireRole(["teacher", "admin"]);
   const parsed = assignmentUpdateSchema.safeParse({
     assignmentId: formData.get("assignmentId"),
     title: formData.get("title"),
     instructions: formData.get("instructions"),
-    dueDate: formData.get("dueDate"),
-    dueTime: formData.get("dueTime"),
+    dueAt: formData.get("dueAt"),
     maxGrade: formData.get("maxGrade")
   });
 
@@ -64,12 +76,13 @@ export async function updateAssignmentAction(_: ActionState, formData: FormData)
     .update({
       title: parsed.data.title,
       instructions: parsed.data.instructions,
-      due_at: new Date(`${parsed.data.dueDate}T${parsed.data.dueTime}`).toISOString(),
+      due_at: parsed.data.dueAt,
       max_grade: parsed.data.maxGrade
     })
     .eq("id", parsed.data.assignmentId);
 
   if (error) return { ok: false, message: error.message };
+  invalidateTeacherCache(profile.id);
   revalidatePath("/teacher");
   return { ok: true, message: "تم حفظ التعديلات." };
 }
@@ -87,6 +100,7 @@ export async function publishAssignmentAction(formData: FormData) {
     .eq("teacher_id", profile.id);
 
   if (error) redirect("/teacher?error=publish_failed");
+  invalidateTeacherCache(profile.id);
   revalidatePath("/teacher");
   redirect("/teacher");
 }
@@ -114,6 +128,7 @@ export async function deleteAssignmentAction(formData: FormData) {
     .eq("teacher_id", profile.id);
 
   if (error) redirect("/teacher?error=delete_failed");
+  invalidateTeacherCache(profile.id);
   revalidatePath("/teacher");
   redirect("/teacher");
 }
@@ -141,12 +156,13 @@ export async function addAttachmentAction(_: ActionState, formData: FormData): P
   });
 
   if (error) return { ok: false, message: error.message };
+  invalidateTeacherCache(profile.id);
   revalidatePath("/teacher");
   return { ok: true, message: "تم إرفاق الصورة." };
 }
 
 export async function removeAttachmentAction(formData: FormData) {
-  await requireRole(["teacher", "admin"]);
+  const profile = await requireRole(["teacher", "admin"]);
   const parsed = uuidFormSchema.safeParse({ id: formData.get("attachmentId") });
   if (!parsed.success) redirect("/teacher?error=invalid");
 
@@ -164,6 +180,7 @@ export async function removeAttachmentAction(formData: FormData) {
     if (error) redirect("/teacher?error=remove_failed");
   }
 
+  invalidateTeacherCache(profile.id);
   revalidatePath("/teacher");
   redirect("/teacher");
 }
@@ -221,13 +238,15 @@ export async function saveGradeAction(_: ActionState, formData: FormData): Promi
 
   await supabase.from("conversations").update({ needs_revision: false }).eq("id", parsed.data.conversationId);
 
+  invalidateTeacherCache(profile.id);
+  invalidateStudentDashboard(conversation.student_id as string);
   revalidatePath("/teacher");
   revalidatePath("/student", "layout");
   return { ok: true, message: "تم حفظ الدرجة." };
 }
 
 export async function reopenConversationAction(_: ActionState, formData: FormData): Promise<ActionState> {
-  await requireRole(["teacher", "admin"]);
+  const profile = await requireRole(["teacher", "admin"]);
   const parsed = uuidFormSchema.safeParse({ id: formData.get("conversationId") });
   if (!parsed.success) return { ok: false, message: "اختيار غير صالح." };
 
@@ -246,6 +265,8 @@ export async function reopenConversationAction(_: ActionState, formData: FormDat
 
   if (error) return { ok: false, message: error.message };
 
+  invalidateTeacherCache(profile.id);
+  invalidateStudentDashboard(conversation.student_id as string);
   revalidatePath("/teacher");
   return { ok: true, message: "أعيد فتح المحادثة." };
 }
@@ -303,12 +324,14 @@ export async function gradeConversationAction(_: ActionState, formData: FormData
 
   await supabase.from("conversations").update({ needs_revision: false }).eq("id", parsed.data.conversationId);
 
+  invalidateTeacherCache(profile.id);
+  invalidateStudentDashboard(conversation.student_id as string);
   revalidatePath("/teacher");
   return { ok: true, message: "تم حفظ الدرجة." };
 }
 
 export async function requestRevisionAction(_: ActionState, formData: FormData): Promise<ActionState> {
-  await requireRole(["teacher", "admin"]);
+  const profile = await requireRole(["teacher", "admin"]);
   const parsed = uuidFormSchema.safeParse({ id: formData.get("conversationId") });
   if (!parsed.success) return { ok: false, message: "اختيار غير صالح." };
 
@@ -323,6 +346,7 @@ export async function requestRevisionAction(_: ActionState, formData: FormData):
   const { error } = await supabase.from("conversations").update({ needs_revision: true }).eq("id", parsed.data.id);
   if (error) return { ok: false, message: error.message };
 
+  invalidateTeacherCache(profile.id);
   revalidatePath("/teacher");
   return { ok: true, message: "تم طلب مراجعة جديدة." };
 }
@@ -347,6 +371,8 @@ export async function closeConversationAction(_: ActionState, formData: FormData
 
   if (error) return { ok: false, message: error.message };
 
+  invalidateTeacherCache(profile.id);
+  invalidateStudentDashboard(conversation.student_id as string);
   revalidatePath("/teacher");
   return { ok: true, message: "تم إنهاء المحادثة." };
 }
@@ -406,19 +432,101 @@ export async function closeAssignmentAction(_: ActionState, formData: FormData):
     }))
   );
 
+  invalidateTeacherCache(profile.id);
   revalidatePath("/teacher");
   revalidatePath("/teacher/assignments");
   revalidatePath("/teacher/assignments/[id]");
-  revalidatePath("/teacher/conversations");
   return { ok: true, message: `تم إنهاء الواجب وإغلاق الاستلام لـ ${active.length} محادثة.` };
 }
 
-export async function forceCloseOverdueAction(_: ActionState, _formData: FormData): Promise<ActionState> {
-  await requireRole(["admin"]);
+export async function reopenAssignmentAction(_: ActionState, formData: FormData): Promise<ActionState> {
+  const profile = await requireRole(["teacher", "admin"]);
+  const parsed = reopenAssignmentSchema.safeParse({
+    assignmentId: formData.get("assignmentId"),
+    dueAt: formData.get("dueAt")
+  });
+  if (!parsed.success) {
+    const message = parsed.error.issues[0]?.message ?? "طلب غير صالح.";
+    if (message.includes("في المستقبل")) return { ok: false, message: "الموعد يجب أن يكون في المستقبل." };
+    if (message.includes("صالح")) return { ok: false, message: "تحقق من الموعد." };
+    return { ok: false, message: "طلب غير صالح." };
+  }
+  const { assignmentId, dueAt } = parsed.data;
+
+  const supabase = await createSupabaseServerClient();
+  const { data: assignment } = await supabase
+    .from("assignments")
+    .select("id, title, class_id")
+    .eq("id", assignmentId)
+    .single();
+  if (!assignment) return { ok: false, message: "الواجب غير موجود." };
+
+  if (profile.role !== "admin") {
+    const { data: taught } = await supabase
+      .from("class_teachers")
+      .select("class_id")
+      .eq("class_id", assignment.class_id)
+      .eq("teacher_id", profile.id);
+    if (!(taught ?? []).length) return { ok: false, message: "غير مصرح لك بهذا الواجب." };
+  }
+
+  const { data: closedRows } = await supabase
+    .from("conversations")
+    .select("id, student_id, closed_by, grades(conversation_id)")
+    .eq("assignment_id", assignmentId)
+    .eq("status", "closed");
+
+  const toReopen = (closedRows ?? []).filter(
+    (c) =>
+      c.closed_by == null &&
+      !(Array.isArray(c.grades) && c.grades.length > 0)
+  ) as { id: string; student_id: string }[];
+
+  const { error: reopenError } = toReopen.length
+    ? await supabase
+        .from("conversations")
+        .update({ status: "active", closed_at: null, closed_by: null, needs_revision: false, updated_at: new Date().toISOString() })
+        .in("id", toReopen.map((c) => c.id))
+    : { error: null };
+  if (reopenError) return { ok: false, message: reopenError.message };
+
+  const { error: dueError } = await createSupabaseAdminClient()
+    .from("assignments")
+    .update({ due_at: dueAt })
+    .eq("id", assignmentId);
+  if (dueError) return { ok: false, message: dueError.message };
+
+  if (toReopen.length) {
+    const dueLabel = dueAt
+      ? ` والموعد الجديد ${new Date(dueAt).toLocaleString("ar-EG")}`
+      : " وسيبقى مفتوحًا حتى يُغلق يدويًا";
+    await supabase.from("notifications").insert(
+      toReopen.map((c) => ({
+        user_id: c.student_id,
+        type: "reopened",
+        title: "أعيد فتح الواجب",
+        body: `أعيد فتح الواجب "${assignment.title}" ويمكنك إرسال رسائل أو تعديلات جديدة${dueLabel}.`,
+        href: `/student/assignments/${c.id}`,
+        assignment_id: assignmentId,
+        conversation_id: c.id
+      }))
+    );
+  }
+
+  invalidateTeacherCache(profile.id);
+  revalidatePath("/teacher");
+  revalidatePath("/teacher/assignments");
+  revalidatePath("/teacher/assignments/[id]");
+  return { ok: true, message: `أعيد فتح الواجب وتم تفعيل ${toReopen.length} محادثة.` };
+}
+
+export async function forceCloseOverdueAction(_: ActionState): Promise<ActionState> {
+  const profile = await requireRole(["admin"]);
   const admin = createSupabaseAdminClient();
   const { data, error } = await admin.rpc("close_overdue_conversations");
 
   if (error) return { ok: false, message: `فشل إغلاق الواجبات المتأخرة: ${error.message}` };
 
+  invalidateTeacherCache(profile.id);
   return { ok: true, message: `تم إغلاق ${data ?? 0} محادثة متأخرة بنجاح.` };
 }
