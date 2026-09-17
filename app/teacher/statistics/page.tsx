@@ -129,6 +129,9 @@ export default async function TeacherStatisticsPage() {
 
   const homeworkStats: HomeworkStat[] = assignments.map((a) => {
     const convs = conversations.filter((c) => c.assignment_id === a.id);
+    const ended =
+      (a.due_at !== null && new Date(a.due_at).getTime() < nowMs) ||
+      (convs.length > 0 && !convs.some((c) => c.status === "active"));
     const counts = new Map<TeacherStatusKey, number>();
     for (const key of TEACHER_STATUSES) counts.set(key, 0);
     const students: Record<TeacherStatusKey, { name: string; code: string; conversationId: string }[]> = {
@@ -167,6 +170,7 @@ export default async function TeacherStatisticsPage() {
       id: a.id,
       title: a.title,
       dueAt: a.due_at,
+      ended,
       className: a.classes?.name ?? null,
       teacherNames,
       counts: Object.fromEntries(counts) as Record<TeacherStatusKey, number>,

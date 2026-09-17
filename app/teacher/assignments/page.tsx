@@ -160,7 +160,11 @@ export default async function TeacherAssignmentsPage({
             const submittedCount = convs.filter(hasActivity).length;
             const notSubmittedCount = convs.length - submittedCount;
             const isDraft = a.status === "draft";
-            const ended = !isDraft && a.due_at !== null && new Date(a.due_at).getTime() < nowMs;
+            const hasActiveConversation = convs.some((c) => c.status === "active");
+            const ended =
+              !isDraft &&
+              ((a.due_at !== null && new Date(a.due_at).getTime() < nowMs) ||
+                (convs.length > 0 && !hasActiveConversation));
             return (
               <Link
                 key={a.id}

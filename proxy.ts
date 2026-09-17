@@ -1,5 +1,9 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse, after, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { ensureOverdueConversationsClosed } from "@/lib/close-overdue";
+
+const OVERDUE_CHECK_INTERVAL_MS = 60_000;
+let lastOverdueCheck = 0;
 
 export async function proxy(request: NextRequest) {
   const supabaseResponse = NextResponse.next({ request });
@@ -35,6 +39,15 @@ export async function proxy(request: NextRequest) {
   const hasAuthCookie = request.cookies.getAll().some((c) => c.name.startsWith("sb-"));
   if (hasAuthCookie) {
     await supabase.auth.getUser();
+
+    // Close any conversations whose assignment deadline has passed. Runs after
+    // the response is sent so it never blocks the request, and is throttled so
+    // a burst of requests only triggers one check per instance per minute.
+    const now = Date.now();
+    if (now - lastOverdueCheck >= OVERDUE_CHECK_INTERVAL_MS) {
+      lastOverdueCheck = now;
+      after(() => ensureOverdueConversationsClosed().catch(() => {}));
+    }
   }
   return supabaseResponse;
 }

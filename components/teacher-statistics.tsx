@@ -27,6 +27,7 @@ export type HomeworkStat = {
   id: string;
   title: string;
   dueAt: string | null;
+  ended: boolean;
   className: string | null;
   teacherNames: string[];
   counts: Record<TeacherStatusKey, number>;
@@ -35,10 +36,6 @@ export type HomeworkStat = {
 
 function formatDue(value: string | null) {
   return formatAppDate(value);
-}
-
-function isOverdue(value: string | null): boolean {
-  return value !== null && new Date(value).getTime() < Date.now();
 }
 
 function schoolDayNumber(ms: number): number {
@@ -153,7 +150,7 @@ export function TeacherStatistics({ homeworkStats }: { homeworkStats: HomeworkSt
         <div className="no-scrollbar flex gap-2 overflow-x-auto px-4 pb-1.5 md:px-0">
           {homeworkStats.map((h) => {
             const isActive = h.id === selectedId;
-            const overdue = isOverdue(h.dueAt);
+            const ended = h.ended;
             return (
               <button
                 key={h.id}
@@ -166,16 +163,16 @@ export function TeacherStatistics({ homeworkStats }: { homeworkStats: HomeworkSt
                 className={cn(
                   "flex shrink-0 flex-col items-start gap-1 rounded-2xl border px-3.5 py-2 text-start transition-all duration-200 active:scale-[0.97]",
                   isActive
-                    ? overdue
+                    ? ended
                       ? "border-destructive bg-destructive text-white shadow-raise"
                       : "border-primary/60 bg-primary text-primary-foreground shadow-raise"
-                    : overdue
+                    : ended
                       ? "border-destructive/40 bg-destructive/[0.04] text-foreground hover:border-destructive/60 hover:shadow-card"
                       : "border-border/70 bg-card text-foreground hover:border-primary/40 hover:shadow-card"
                 )}
               >
                 <span className="flex max-w-44 items-center gap-1.5">
-                  {overdue && (
+                  {ended && (
                     <span
                       className={cn("size-1.5 shrink-0 rounded-full", isActive ? "bg-white" : "bg-destructive")}
                     />
@@ -186,10 +183,10 @@ export function TeacherStatistics({ homeworkStats }: { homeworkStats: HomeworkSt
                   className={cn(
                     "flex max-w-44 items-center gap-1 text-[0.68rem]",
                     isActive
-                      ? overdue
+                      ? ended
                         ? "text-white/85"
                         : "text-primary-foreground/85"
-                      : overdue
+                      : ended
                         ? "text-destructive/80"
                         : "text-muted-foreground"
                   )}
@@ -197,7 +194,7 @@ export function TeacherStatistics({ homeworkStats }: { homeworkStats: HomeworkSt
                   <School
                     className={cn(
                       "size-3 shrink-0",
-                      !isActive && (overdue ? "text-destructive" : "text-primary")
+                      !isActive && (ended ? "text-destructive" : "text-primary")
                     )}
                   />
                   <span dir="auto" className="min-w-0 truncate">
@@ -263,7 +260,7 @@ export function TeacherStatistics({ homeworkStats }: { homeworkStats: HomeworkSt
             <div
               className={cn(
                 "flex shrink-0 items-center gap-1.5 rounded-2xl border px-3 py-2 text-sm font-bold",
-                isOverdue(selected.dueAt)
+                selected.ended
                   ? "border-destructive/25 bg-destructive/[0.06] text-destructive"
                   : "border-primary/20 bg-primary/[0.04] text-primary"
               )}
@@ -285,10 +282,10 @@ export function TeacherStatistics({ homeworkStats }: { homeworkStats: HomeworkSt
                   <p
                     className={cn(
                       "text-xs",
-                      isOverdue(selected.dueAt) ? "font-bold text-destructive" : "text-muted-foreground"
+                      selected.ended ? "font-bold text-destructive" : "text-muted-foreground"
                     )}
                   >
-                    {relativeDue(selected.dueAt)}
+                    {selected.ended ? "انتهى موعد الواجب" : relativeDue(selected.dueAt)}
                   </p>
                 ) : null}
               </div>

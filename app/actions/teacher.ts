@@ -414,7 +414,7 @@ export async function closeAssignmentAction(_: ActionState, formData: FormData):
     .eq("status", "active");
   if (closeError) return { ok: false, message: closeError.message };
 
-  const { error: dueError } = await supabase
+  const { error: dueError } = await createSupabaseAdminClient()
     .from("assignments")
     .update({ due_at: nowIso })
     .eq("id", parsed.data.id);
