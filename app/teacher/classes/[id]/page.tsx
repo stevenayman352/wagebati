@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { PageShell } from "@/components/page-shell";
 import { AppNav } from "@/components/app-nav";
-import { FileText, Users, GraduationCap, ChevronUp, Download } from "lucide-react";
+import { FileText, Users, GraduationCap, Download } from "lucide-react";
 import { BackButton } from "@/components/back-button";
 
 type ClassData = {
@@ -138,27 +138,14 @@ export default async function TeacherClassPage({ params }: { params: Promise<{ i
               الطلاب
               <span className="text-sm font-normal text-muted-foreground">({students.length})</span>
             </h2>
-            <StudentSearch>
-              {students.map((s) => (
-                <Link
-                  key={s.student_id}
-                  href={`/teacher/classes/${id}/students/${s.student_id}`}
-                  data-name={s.students?.full_name ?? ""}
-                  className="flex items-center justify-between gap-2 rounded-xl border border-border/70 px-3 py-2.5 transition-colors hover:border-primary/40 hover:bg-muted/40"
-                >
-                  <div className="flex items-center gap-2.5">
-                    <span className="flex size-8 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">
-                      {s.students?.full_name?.charAt(0) ?? "ط"}
-                    </span>
-                    <span className="font-medium">{s.students?.full_name ?? "طالب"}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground">{s.students?.code ?? ""}</span>
-                    <ChevronUp className="size-3.5 rotate-180 text-muted-foreground" />
-                  </div>
-                </Link>
-              ))}
-            </StudentSearch>
+            <StudentSearch
+              students={students.map((s) => ({
+                id: s.student_id,
+                name: s.students?.full_name || "طالب",
+                code: s.students?.code ?? "",
+                href: `/teacher/classes/${id}/students/${s.student_id}`
+              }))}
+            />
           </section>
 
           <section className="rounded-[var(--radius-lg)] border border-border/70 bg-card p-5 shadow-card">

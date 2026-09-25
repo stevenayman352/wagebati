@@ -5,3 +5,13 @@ node_modules
 .vercel
 *.log
 *.tsbuildinfo
+
+# Student PII — must never be uploaded. .gitignore is NOT applied when
+# .vercelignore exists, so these have to be listed explicitly.
+scripts/backups/
+scripts/purge-manifest-*.json
+
+# Secrets — these live in Vercel's dashboard, not in the upload.
+.env
+.env*.local
+

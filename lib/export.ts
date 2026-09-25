@@ -71,6 +71,9 @@ export const EXPORT_HEADERS: Array<[keyof Row, string]> = [
 
 type StudentBlock = { name: string; code: string; grades: Map<string, number> };
 
+// Arabic alphabetical order: أ/إ/آ group together as alif, then ب … ي.
+const ARABIC_SORT = new Intl.Collator("ar");
+
 function collectMatrix(rows: Row[]) {
   const students = new Map<string, StudentBlock>();
   const homeworks: string[] = [];
@@ -91,7 +94,13 @@ function collectMatrix(rows: Row[]) {
     if (title && !Number.isNaN(parsed)) students.get(key)!.grades.set(title, parsed);
   }
 
-  return { students: [...students.values()], homeworks, homeworkMax };
+  return {
+    students: [...students.values()].sort(
+      (a, b) => ARABIC_SORT.compare(a.name, b.name) || ARABIC_SORT.compare(a.code, b.code)
+    ),
+    homeworks,
+    homeworkMax
+  };
 }
 
 function maxOf(homeworkMax: Map<string, number>, title: string): number {
