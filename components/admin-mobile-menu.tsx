@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
-import { LayoutGrid, Users, GraduationCap, RefreshCw, LogOut, Menu, X } from "lucide-react";
+import { LayoutGrid, Users, GraduationCap, RefreshCw, Trash2, LogOut, Menu, X } from "lucide-react";
 import { signOutAction } from "@/app/actions/auth";
 import { cn } from "@/lib/utils";
 import { BrandLogo } from "@/components/brand-logo";
@@ -14,7 +14,8 @@ const NAV = [
   { href: "/admin", label: "الرئيسية", icon: LayoutGrid, exact: true },
   { href: "/admin/accounts", label: "الحسابات", icon: Users },
   { href: "/admin/classes", label: "الصفوف", icon: GraduationCap },
-  { href: "/admin/reset-password", label: "إعادة تعيين كلمة المرور", icon: RefreshCw }
+  { href: "/admin/reset-password", label: "إعادة تعيين كلمة المرور", icon: RefreshCw },
+  { href: "/admin/delete-assignment", label: "حذف واجب", icon: Trash2 }
 ];
 
 export function AdminMobileMenu() {

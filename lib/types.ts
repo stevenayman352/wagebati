@@ -19,10 +19,20 @@ export type Profile = {
   last_login_at: string | null;
 };
 
+export type AssignmentMatch = {
+  id: string;
+  title: string;
+  className: string;
+  teacherName: string;
+  dueAt: string | null;
+  conversationCount: number;
+};
+
 export type ActionState = {
   ok: boolean;
   message: string;
   created?: number;
   rejected?: number;
   issues?: ImportIssue[];
+  matches?: AssignmentMatch[];
 };

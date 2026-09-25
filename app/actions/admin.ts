@@ -8,7 +8,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { accountSchema, classSchema, codeSchema, uuidSchema } from "@/lib/validators";
 import { accountEmailForCode, generateAccountCode } from "@/lib/accounts";
 import { MAX_IMPORT_FILE_BYTES, parseImportFile, validateImportRows } from "@/lib/import-accounts";
-import type { ActionState, ImportIssue } from "@/lib/types";
+import type { ActionState, AssignmentMatch, ImportIssue } from "@/lib/types";
 import { verifyAdminPasswordAction } from "@/app/actions/auth";
 
 function invalidateAdminCaches(adminId: string) {
@@ -491,4 +491,142 @@ export async function deleteClassAction(_: ActionState, formData: FormData): Pro
   } catch (e) {
     return { ok: false, message: e instanceof Error ? e.message : "تعذر حذف الصف." };
   }
+}
+
+function invalidateAssignmentCaches(teacherId: string | null, studentIds: string[]) {
+  if (teacherId) {
+    updateTag(`teacher-dashboard:${teacherId}`);
+    updateTag(`conversations:${teacherId}`);
+    updateTag(`assignments:${teacherId}`);
+    updateTag(`statistics:${teacherId}`);
+    updateTag(`teacher-classes:${teacherId}`);
+  }
+  for (const studentId of studentIds) {
+    updateTag(`student-dashboard:${studentId}`);
+    updateTag(`conversations:${studentId}`);
+    updateTag(`teacher-dashboard:${studentId}`);
+  }
+  revalidatePath("/admin");
+  revalidatePath("/teacher");
+  revalidatePath("/student", "layout");
+  revalidatePath("/notifications");
+}
+
+/**
+ * Admin-only: find a published assignment by its title, then delete it together
+ * with ALL its conversations, messages, submissions, grades and stored media
+ * files. Uses the service-role client so the draft-only delete RLS policy does
+ * not block it; the DB `on delete cascade` removes the conversation tree.
+ */
+export async function deleteAssignmentByTitleAction(_: ActionState, formData: FormData): Promise<ActionState> {
+  await requireRole(["admin"]);
+
+  const assignmentId = String(formData.get("assignmentId") ?? "").trim();
+  const confirmed = formData.get("confirm") === "true";
+  const title = String(formData.get("title") ?? "").trim();
+
+  if (!assignmentId && !title) {
+    return { ok: false, message: "اكتب جزءًا من اسم الواجب." };
+  }
+
+  const admin = createSupabaseAdminClient();
+
+  if (assignmentId) {
+    if (!confirmed) return { ok: false, message: "لم يُؤكد الحذف. أعد المحاولة." };
+
+    const { data: assignment } = await admin
+      .from("assignments")
+      .select("id, title, teacher_id")
+      .eq("id", assignmentId)
+      .maybeSingle();
+    if (!assignment) return { ok: false, message: "الواجب غير موجود أو حُذف بالفعل." };
+
+    const { data: convs } = await admin
+      .from("conversations")
+      .select("id, student_id")
+      .eq("assignment_id", assignmentId);
+    const convIds = (convs ?? []).map((c) => String(c.id));
+    const studentIds = (convs ?? []).map((c) => String(c.student_id));
+
+    const [{ data: attachments }, { data: submissions }, { data: messages }] = await Promise.all([
+      admin.from("assignment_attachments").select("storage_path").eq("assignment_id", assignmentId),
+      admin.from("submissions").select("id, video_path, voice_path").eq("assignment_id", assignmentId),
+      convIds.length
+        ? admin.from("messages").select("storage_path").in("conversation_id", convIds)
+        : Promise.resolve({ data: [] })
+    ]);
+
+    let submissionImagePaths: string[] = [];
+    const submissionIds = (submissions ?? []).map((s) => String(s.id)).filter(Boolean);
+    if (submissionIds.length) {
+      const { data: subImages } = await admin
+        .from("submission_images")
+        .select("storage_path")
+        .in("submission_id", submissionIds);
+      submissionImagePaths = (subImages ?? []).map((i) => String(i.storage_path)).filter(Boolean);
+    }
+
+    const submissionPaths = [
+      ...(submissions ?? []).map((s) => String(s.video_path)).filter(Boolean),
+      ...(submissions ?? []).map((s) => String(s.voice_path)).filter(Boolean),
+      ...submissionImagePaths
+    ];
+
+    const buckets: Array<[string, string[]]> = [
+      ["assignment-attachments", (attachments ?? []).map((a) => String(a.storage_path)).filter(Boolean)],
+      ["submissions", submissionPaths],
+      ["message-media", (messages ?? []).map((m) => String(m.storage_path)).filter(Boolean)]
+    ];
+
+    for (const [bucket, paths] of buckets) {
+      for (let i = 0; i < paths.length; i += 100) {
+        const chunk = paths.slice(i, i + 100);
+        if (chunk.length) await admin.storage.from(bucket).remove(chunk).catch(() => {});
+      }
+    }
+
+    const { error } = await admin.from("assignments").delete().eq("id", assignmentId);
+    if (error) return { ok: false, message: `تعذر حذف الواجب: ${error.message}` };
+
+    invalidateAssignmentCaches(assignment.teacher_id as string | null, studentIds);
+    return {
+      ok: true,
+      message: `حُذف الواجب «${assignment.title}» مع ${convIds.length} محادثة وكل الملفات المرتبطة به.`
+    };
+  }
+
+  if (title.length < 2) {
+    return { ok: false, message: "اكتب حرفين على الأقل للبحث." };
+  }
+
+  const { data, error } = await admin
+    .from("assignments")
+    .select(
+      "id, title, due_at, classes(name), teacher:profiles!assignments_teacher_id_fkey(full_name), conversations(count)"
+    )
+    .eq("status", "published")
+    .ilike("title", `%${title.slice(0, 120)}%`)
+    .order("created_at", { ascending: false })
+    .limit(20);
+
+  if (error) return { ok: false, message: error.message };
+
+  const matches = (data ?? []).map((m): AssignmentMatch => ({
+    id: String(m.id),
+    title: String(m.title ?? ""),
+    className: (m.classes as { name?: string } | null)?.name ?? "",
+    teacherName: (m.teacher as { full_name?: string } | null)?.full_name ?? "",
+    dueAt: m.due_at as string | null,
+    conversationCount: (m.conversations as { count?: number }[] | null)?.[0]?.count ?? 0
+  }));
+
+  if (matches.length === 0) {
+    return { ok: false, message: "لا يوجد واجب منشور بهذا الاسم." };
+  }
+
+  return {
+    ok: true,
+    message: `وُجد ${matches.length} وأجـب. اضغط «تأكيد الحذف» تحت الواجب الصحيح — لا يمكن التراجع.`,
+    matches
+  };
 }
