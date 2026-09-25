@@ -10,6 +10,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:db": "node --env-file=.env scripts/db-integration.ts",
+    "backup:data": "node --env-file=.env scripts/backup-data.ts",
+    "purge:media": "node --env-file=.env scripts/purge-media.ts",
     "deploy:preview": "next build && node scripts/deploy-preview.mjs"
   },
   "dependencies": {

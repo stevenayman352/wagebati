@@ -13,3 +13,7 @@ supabase/.branches/
 
 # Large local-only files (not for git or Vercel)
 public/*.pptx
+
+# Data backups and purge manifests (contain student PII, never commit)
+scripts/backups/
+scripts/purge-manifest-*.json
