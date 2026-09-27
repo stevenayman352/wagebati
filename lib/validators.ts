@@ -87,6 +87,23 @@ export const messageSchema = z.object({
   replyToMessageId: z.string().uuid().optional().nullable()
 });
 
+/**
+ * Pre-login support request. `guestCode` is free text on purpose: it is the code
+ * the visitor intends to register with, not a lookup against `profiles`, so it
+ * is only bounded in length. `website` is a honeypot and must stay empty.
+ */
+export const guestThreadSchema = z.object({
+  guestName: z.string().trim().min(2).max(120),
+  guestCode: z.string().trim().min(2).max(60),
+  body: z.string().trim().min(1).max(5000),
+  website: z.string().max(0).optional()
+});
+
+export const supportGuestTokenSchema = z.object({
+  threadId: z.string().uuid(),
+  token: z.string().min(20).max(200)
+});
+
 export const gradeSchema = z
   .object({
     conversationId: z.string().uuid(),

@@ -1,10 +1,13 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { hasSupabaseConfig } from "@/lib/supabase/config";
 import { dashboardPath, getCurrentProfile } from "@/lib/auth";
+import { purgeGuestSupportThreadsForCode } from "@/lib/support/purge";
+import { GUEST_THREAD_COOKIE } from "@/lib/support/guest-session";
 import type { ActionState } from "@/lib/types";
 
 export async function signInAction(formData: FormData) {
@@ -43,6 +46,19 @@ export async function signInAction(formData: FormData) {
   if (!profile) redirect("/login?error=inactive");
 
   if (profile.must_change_password) redirect("/change-password?first=1");
+
+  // A pre-login support thread is temporary by design: now that the visitor has
+  // an account, destroy it (media and admin replies included) and let them start
+  // a fresh one from /student/support. Matched on the code we just verified.
+  // `code` is the submitted value and the profile carries the same verified
+  // code; purgeGuestSupportThreadsForCode never throws.
+  if (profile.role === "student") {
+    const purged = await purgeGuestSupportThreadsForCode(code);
+    // The saved pointer is dead once its thread is. Leaving it behind would make
+    // /support offer "continue" for a conversation that no longer exists.
+    if (purged > 0) (await cookies()).delete(GUEST_THREAD_COOKIE);
+  }
+
   redirect(dashboardPath(profile.role));
 }
 

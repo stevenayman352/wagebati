@@ -5,20 +5,13 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
-import { LayoutGrid, Users, GraduationCap, RefreshCw, Trash2, LogOut, Menu, X } from "lucide-react";
+import { Menu, X, LogOut } from "lucide-react";
 import { signOutAction } from "@/app/actions/auth";
 import { cn } from "@/lib/utils";
 import { BrandLogo } from "@/components/brand-logo";
+import { ADMIN_NAV, AdminNavBadge } from "@/components/admin-nav";
 
-const NAV = [
-  { href: "/admin", label: "الرئيسية", icon: LayoutGrid, exact: true },
-  { href: "/admin/accounts", label: "الحسابات", icon: Users },
-  { href: "/admin/classes", label: "الصفوف", icon: GraduationCap },
-  { href: "/admin/reset-password", label: "إعادة تعيين كلمة المرور", icon: RefreshCw },
-  { href: "/admin/delete-assignment", label: "حذف واجب", icon: Trash2 }
-];
-
-export function AdminMobileMenu() {
+export function AdminMobileMenu({ supportUnread = 0 }: { supportUnread?: number }) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
   const [pending, startTransition] = useTransition();
@@ -57,7 +50,7 @@ export function AdminMobileMenu() {
           </Button>
         </div>
         <nav className="flex flex-1 flex-col gap-1 overflow-y-auto p-3">
-          {NAV.map((n) => {
+          {ADMIN_NAV.map((n) => {
             const Icon = n.icon;
             const active = n.exact ? pathname === n.href : pathname.startsWith(n.href);
             return (
@@ -74,6 +67,7 @@ export function AdminMobileMenu() {
               >
                 <Icon className="size-4" />
                 {n.label}
+                <AdminNavBadge href={n.href} supportUnread={supportUnread} />
               </Link>
             );
           })}

@@ -351,7 +351,13 @@ export default async function TeacherPage({
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="truncate text-base font-bold">{a.title}</span>
+                          {/* `truncate` here meant whitespace-nowrap, so a long title
+                              could not wrap and pushed the row wider than the card.
+                              min-w-0 lets the flex item shrink, break-words handles
+                              single long words, and the clamp caps it at two lines. */}
+                          <span className="line-clamp-2 min-w-0 break-words text-base font-bold">
+                            {a.title}
+                          </span>
                           <Badge variant="success">نشط</Badge>
                           {(() => {
                             const n = needsByAssignment.get(a.id) ?? 0;

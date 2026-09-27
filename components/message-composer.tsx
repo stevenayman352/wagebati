@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useRef, useState } from "react";
+import { useActionState, useMemo, useRef, useState } from "react";
 import {
   sendImageMessageAction,
   sendTextMessageAction,
@@ -14,7 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { maxBytesFor, allowedMimeFor } from "@/lib/file-rules";
 import { compressImageFile, compressVideoFile, type CompressProgress } from "@/lib/compress";
-import { quotePreview, type ThreadMessage } from "@/components/conversation-thread";
+import { quotePreview, roleLabel, type ThreadMessage } from "@/components/conversation-thread";
 import { cn } from "@/lib/utils";
 import { Camera, CheckCircle2, CornerUpLeft, Mic, Paperclip, Send, Video, X } from "lucide-react";
 import type { ActionState } from "@/lib/types";
@@ -24,6 +24,44 @@ const MAX_IMAGE = maxBytesFor("image");
 const ALLOWED_VIDEO = allowedMimeFor("video").split(",");
 const ALLOWED_IMAGE = allowedMimeFor("image").split(",");
 const init: ActionState = { ok: false, message: "" };
+
+/**
+ * The four server actions a composer needs. Defaults to the assignment-chat
+ * actions; the support chat passes its own.
+ */
+export type ComposerActions = {
+  text: (state: ActionState, formData: FormData) => Promise<ActionState>;
+  voice: (state: ActionState, formData: FormData) => Promise<ActionState>;
+  image: (state: ActionState, formData: FormData) => Promise<ActionState>;
+  video: (state: ActionState, formData: FormData) => Promise<ActionState>;
+};
+
+export const defaultComposerActions: ComposerActions = {
+  text: sendTextMessageAction,
+  voice: sendVoiceMessageAction,
+  image: sendImageMessageAction,
+  video: sendVideoMessageAction
+};
+
+/**
+ * Turns a picked/recorded file into a stored object plus a progress handle.
+ *
+ * Extracted because the two audiences cannot upload the same way: signed-in
+ * users go straight to storage with their session token, while a guest has no
+ * session and must first ask the server for a signed upload target.
+ */
+export type ComposerUploader = (
+  file: File,
+  ext: string,
+  onProgress?: (percent: number) => void
+) => Promise<{ path: string; handle: UploadHandle }>;
+
+function makeDefaultUploader(bucket: string, threadId: string): ComposerUploader {
+  return async (file, ext, onProgress) => {
+    const path = `${bucket}/${threadId}/${crypto.randomUUID()}.${ext}`;
+    return { path, handle: uploadWithProgress(file, path, { bucket, onProgress }) };
+  };
+}
 
 type StagedMedia = { kind: "video" | "image"; storagePath: string; fileName: string; mimeType: string; fileSize: number };
 type PendingUpload = {
@@ -41,8 +79,17 @@ export function MessageComposer({
   replyTo,
   onCancelReply,
   fill = false,
-  onOptimistic
+  onOptimistic,
+  actions = defaultComposerActions,
+  bucket = "message-media",
+  uploader,
+  sendToken
 }: {
+  /**
+   * Opaque id of the conversation. Reused for support threads, where it is a
+   * `support_threads.id`; the field name stays `conversationId` so the support
+   * actions read the same FormData key and no existing caller churns.
+   */
   conversationId: string;
   disabled: boolean;
   disabledLabel?: string;
@@ -50,9 +97,18 @@ export function MessageComposer({
   onCancelReply: () => void;
   fill?: boolean;
   onOptimistic?: (msg: Partial<ThreadMessage> & { body: string; kind: string }) => void;
+  actions?: ComposerActions;
+  bucket?: string;
+  uploader?: ComposerUploader;
+  /**
+   * Guest capability token. When set, it is attached to every outgoing
+   * FormData so the support actions can re-verify the caller, since a guest
+   * pollutes no session for RLS to check.
+   */
+  sendToken?: string;
 }) {
-  const [textState, textAction, sending] = useActionState(sendTextMessageAction, init);
-  const [voiceState, voiceAction, sendingVoice] = useActionState(sendVoiceMessageAction, init);
+  const [textState, textAction, sending] = useActionState(actions.text, init);
+  const [voiceState, voiceAction, sendingVoice] = useActionState(actions.voice, init);
   const [localError, setLocalError] = useState<string | null>(null);
   const [pending, setPending] = useState<PendingUpload | null>(null);
   const [recorderOpen, setRecorderOpen] = useState(false);
@@ -63,6 +119,13 @@ export function MessageComposer({
   const textFormRef = useRef<HTMLFormElement>(null);
   const videoFileRef = useRef<HTMLInputElement>(null);
   const imageFileRef = useRef<HTMLInputElement>(null);
+
+  // Recreated only when the thread or bucket changes, so the inline defaults
+  // below do not become a new function identity on every render.
+  const uploaderFn = useMemo(
+    () => uploader ?? makeDefaultUploader(bucket, conversationId),
+    [uploader, bucket, conversationId]
+  );
 
   async function uploadMedia(file: File, kind: PendingUpload["kind"], duration?: number) {
     setLocalError(null);
@@ -85,11 +148,11 @@ export function MessageComposer({
     }
 
     const ext = outFile.name.split(".").pop()?.toLowerCase() ?? "bin";
-    const path = `message-media/${conversationId}/${crypto.randomUUID()}.${ext}`;
-    const handle = uploadWithProgress(outFile, path, {
-      bucket: "message-media",
-      onProgress: (pct) => setPending((p) => (p ? { ...p, pct } : p))
-    });
+    const { path, handle } = await uploaderFn(
+      outFile,
+      ext,
+      (pct) => setPending((p) => (p ? { ...p, pct } : p))
+    );
     setPending({ kind, name: outFile.name, stage: "upload", pct: 0, handle });
     try {
       await handle.done;
@@ -103,6 +166,7 @@ export function MessageComposer({
     if (kind === "voice") {
       const fd = new FormData();
       fd.set("conversationId", conversationId);
+      if (sendToken) fd.set("guestToken", sendToken);
       fd.set("storagePath", path);
       fd.set("fileName", outFile.name);
       fd.set("mimeType", outFile.type);
@@ -160,12 +224,13 @@ export function MessageComposer({
       setMediaState(init);
       const fd = new FormData();
       fd.set("conversationId", conversationId);
+      if (sendToken) fd.set("guestToken", sendToken);
       fd.set("storagePath", staged.storagePath);
       fd.set("fileName", staged.fileName);
       fd.set("mimeType", staged.mimeType);
       fd.set("fileSize", String(staged.fileSize));
       if (replyTo) fd.set("replyToMessageId", replyTo.id);
-      const result = staged.kind === "video" ? await sendVideoMessageAction(init, fd) : await sendImageMessageAction(init, fd);
+      const result = staged.kind === "video" ? await actions.video(init, fd) : await actions.image(init, fd);
       setSendingMedia(false);
       setMediaState(result);
       if (result.ok) {
@@ -251,7 +316,7 @@ export function MessageComposer({
           <div className="min-w-0 flex-1">
             <p className="mb-0.5 flex items-center gap-1.5 text-xs font-bold text-primary">
               <CornerUpLeft className="size-3.5 rtl:-scale-x-100" />
-              رد على {replyTo.sender_role === "teacher" ? "المدرس" : "الطالب"}
+              رد على {roleLabel(replyTo.sender_role)}
             </p>
             <p className="truncate text-xs text-muted-foreground">{quotePreview(replyTo)}</p>
           </div>
@@ -327,6 +392,7 @@ export function MessageComposer({
           className="flex min-w-0 flex-1 items-center gap-1.5"
         >
           <input type="hidden" name="conversationId" value={conversationId} />
+          {sendToken ? <input type="hidden" name="guestToken" value={sendToken} /> : null}
           <input type="hidden" name="replyToMessageId" value={replyTo?.id ?? ""} />
           <Input
             name="body"

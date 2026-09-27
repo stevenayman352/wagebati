@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { Suspense } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
-import { LayoutGrid, Bell, UserRound, Users, ClipboardList, BarChart3 } from "lucide-react";
+import { LayoutGrid, Bell, UserRound, Users, ClipboardList, BarChart3, LifeBuoy } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type NavItem = { href: string; label: string; icon: typeof LayoutGrid };
@@ -11,6 +11,7 @@ type NavItem = { href: string; label: string; icon: typeof LayoutGrid };
 const ROLE_ITEMS: Record<string, NavItem[]> = {
   student: [
     { href: "/student", label: "الرئيسية", icon: LayoutGrid },
+    { href: "/student/support", label: "الدعم", icon: LifeBuoy },
     { href: "/notifications", label: "الإشعارات", icon: Bell },
     { href: "/student?tab=account", label: "الحساب", icon: UserRound }
   ],
@@ -24,7 +25,7 @@ const ROLE_ITEMS: Record<string, NavItem[]> = {
   ]
 };
 
-function AppNavContent({ role }: { role: "student" | "teacher" }) {
+function AppNavContent({ role, supportUnread = 0 }: { role: "student" | "teacher"; supportUnread?: number }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const tab = searchParams.get("tab");
@@ -72,6 +73,14 @@ function AppNavContent({ role }: { role: "student" | "teacher" }) {
                     active ? "w-4 opacity-100" : "w-0 opacity-0"
                   )}
                 />
+                {item.href === "/student/support" && supportUnread > 0 ? (
+                  <span
+                    className="absolute -top-0.5 right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[0.6rem] font-bold leading-none text-primary-foreground ring-2 ring-card"
+                    aria-label={`${supportUnread} رسائل غير مقروءة`}
+                  >
+                    {supportUnread > 99 ? "99+" : supportUnread}
+                  </span>
+                ) : null}
               </span>
               <span
                 className={cn(
@@ -89,11 +98,11 @@ function AppNavContent({ role }: { role: "student" | "teacher" }) {
   );
 }
 
-export function AppNav({ role }: { role: "student" | "teacher" | "admin" }) {
+export function AppNav({ role, supportUnread = 0 }: { role: "student" | "teacher" | "admin"; supportUnread?: number }) {
   if (role === "admin") return null;
   return (
     <Suspense fallback={null}>
-      <AppNavContent role={role} />
+      <AppNavContent role={role} supportUnread={supportUnread} />
     </Suspense>
   );
 }

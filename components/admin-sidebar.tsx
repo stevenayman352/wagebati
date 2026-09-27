@@ -3,20 +3,13 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTransition } from "react";
-import { LayoutGrid, Users, GraduationCap, RefreshCw, Trash2, LogOut } from "lucide-react";
+import { LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { BrandLogo } from "@/components/brand-logo";
+import { ADMIN_NAV, AdminNavBadge } from "@/components/admin-nav";
 import { signOutAction } from "@/app/actions/auth";
 
-const NAV = [
-  { href: "/admin", label: "الرئيسية", icon: LayoutGrid, exact: true },
-  { href: "/admin/accounts", label: "الحسابات", icon: Users },
-  { href: "/admin/classes", label: "الصفوف", icon: GraduationCap },
-  { href: "/admin/reset-password", label: "إعادة تعيين كلمة المرور", icon: RefreshCw },
-  { href: "/admin/delete-assignment", label: "حذف واجب", icon: Trash2 }
-];
-
-export function AdminSidebar() {
+export function AdminSidebar({ supportUnread = 0 }: { supportUnread?: number }) {
   const pathname = usePathname();
   const [pending, startTransition] = useTransition();
   return (
@@ -29,7 +22,7 @@ export function AdminSidebar() {
         </div>
       </div>
       <nav className="flex flex-1 flex-col gap-1">
-        {NAV.map((n) => {
+        {ADMIN_NAV.map((n) => {
           const Icon = n.icon;
           const active = n.exact ? pathname === n.href : pathname.startsWith(n.href);
           return (
@@ -45,6 +38,7 @@ export function AdminSidebar() {
             >
               <Icon className="size-4" />
               {n.label}
+              <AdminNavBadge href={n.href} supportUnread={supportUnread} />
             </Link>
           );
         })}

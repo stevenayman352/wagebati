@@ -109,7 +109,12 @@ export function ActiveHomeworksView({
                   <FileText className="size-5" />
                 </span>
                 <div className="min-w-0 flex-1 space-y-1.5">
-                  <span className="block truncate text-base font-bold">{a.title}</span>
+                  {/* Long titles wrap to a second line instead of being clipped to
+                      one: `truncate` forces whitespace-nowrap, which both hid the
+                      end of the name and fought the card's responsive width. */}
+                  <span className="block line-clamp-2 break-words text-base font-bold">
+                    {a.title}
+                  </span>
                   <span className="block truncate text-xs text-muted-foreground">
                     {a.className ? `فصل ${a.className}` : "بدون صف"}
                   </span>

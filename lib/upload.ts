@@ -21,15 +21,16 @@ function translateUploadError(raw: string): string {
     : `${raw} — تحقق من إعدادات التخزين.`;
 }
 
-export function uploadWithProgress(
+/**
+ * Shared XHR body for both upload flavours. `resolveAuth` returns the headers to
+ * send, or throws to abort — which is how a missing session is rejected before
+ * any bytes go out.
+ */
+function startUpload(
   file: File,
-  path: string,
-  opts: { bucket: string; onProgress?: (percent: number) => void }
+  resolveAuth: () => Promise<Record<string, string>>,
+  onProgress?: (percent: number) => void
 ): UploadHandle {
-  const host = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-  const endpoint = `${host}/storage/v1/object/${opts.bucket}/${path}`;
-
   let resolveDone: () => void = () => {};
   let rejectDone: (reason: Error) => void = () => {};
   const done = new Promise<void>((resolve, reject) => {
@@ -38,27 +39,29 @@ export function uploadWithProgress(
   });
 
   const run = (async () => {
-    const supabase = createSupabaseBrowserClient();
-    const { data } = await supabase.auth.getSession();
-    const token = data.session?.access_token;
-    if (!token) {
-      rejectDone(new Error("غير مسجل الدخول."));
+    let headers: Record<string, string>;
+    try {
+      headers = await resolveAuth();
+    } catch (error) {
+      rejectDone(error instanceof Error ? error : new Error("تعذر الاتصال بالخادم."));
       return;
     }
 
     const xhr = new XMLHttpRequest();
-    xhr.open("POST", endpoint);
-    xhr.setRequestHeader("apikey", anon);
-    xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+    xhr.open("POST", headers.__url as string);
+    for (const [key, value] of Object.entries(headers)) {
+      if (key === "__url") continue;
+      xhr.setRequestHeader(key, value);
+    }
     xhr.setRequestHeader("Content-Type", file.type);
     xhr.setRequestHeader("x-upsert", "false");
 
     xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable) opts.onProgress?.(Math.round((e.loaded / e.total) * 100));
+      if (e.lengthComputable) onProgress?.(Math.round((e.loaded / e.total) * 100));
     };
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) {
-        opts.onProgress?.(100);
+        onProgress?.(100);
         resolveDone();
         return;
       }
@@ -86,4 +89,56 @@ export function uploadWithProgress(
       });
     }
   };
+}
+
+/**
+ * Uploads with the caller's session. This is the path every signed-in user takes
+ * for assignment messages and support messages.
+ */
+export function uploadWithProgress(
+  file: File,
+  path: string,
+  opts: { bucket: string; onProgress?: (percent: number) => void }
+): UploadHandle {
+  const host = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+
+  return startUpload(
+    file,
+    async () => {
+      const supabase = createSupabaseBrowserClient();
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      if (!token) throw new Error("غير مسجل الدخول.");
+      return {
+        __url: `${host}/storage/v1/object/${opts.bucket}/${path}`,
+        apikey: anon,
+        Authorization: `Bearer ${token}`
+      };
+    },
+    opts.onProgress
+  );
+}
+
+/**
+ * Uploads to a Supabase *signed upload URL* instead of the object endpoint.
+ *
+ * A guest has no session, so `uploadWithProgress` cannot serve them — it
+ * hard-requires an access token. A signed upload target is issued by the server
+ * once the guest's capability token checks out, and carries its own short-lived
+ * `signedToken` in place of a session. That keeps large videos flowing
+ * browser -> storage directly, with the same XHR progress reporting, and without
+ * the file ever passing through the Next server.
+ */
+export function uploadToSignedUrl(
+  file: File,
+  signedUrl: string,
+  signedToken: string,
+  opts: { onProgress?: (percent: number) => void } = {}
+): UploadHandle {
+  return startUpload(
+    file,
+    async () => ({ __url: signedUrl, Authorization: `Bearer ${signedToken}` }),
+    opts.onProgress
+  );
 }

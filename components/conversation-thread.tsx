@@ -23,8 +23,36 @@ export type ThreadMessage = {
   deleted_from_storage_at: string | null;
   reply_to_message_id: string | null;
   created_at: string;
+  /**
+   * Overrides the label derived from `sender_role`. Support threads carry the
+   * guest's own name here; the assignment chat never sets it.
+   */
+  display_name?: string | null;
   _pending?: boolean;
 };
+
+/** Avatar initial per role. Support adds `admin` (support staff) and `guest`. */
+const ROLE_INITIAL: Record<string, string> = {
+  teacher: "م",
+  admin: "د",
+  student: "ط",
+  guest: "ز"
+};
+
+const ROLE_LABEL: Record<string, string> = {
+  teacher: "المدرس",
+  admin: "الدعم",
+  student: "الطالب",
+  guest: "زائر"
+};
+
+export function roleInitial(role: string): string {
+  return ROLE_INITIAL[role] ?? "؟";
+}
+
+export function roleLabel(role: string): string {
+  return ROLE_LABEL[role] ?? "مستخدم";
+}
 
 export function formatTime(value: string) {
   return formatAppTime(value);
@@ -146,7 +174,7 @@ const MessageBubble = memo(function MessageBubble({
             "flex size-7 shrink-0 items-center justify-center rounded-full bg-primary/12 text-[0.65rem] font-bold text-primary"
           )}
         >
-          {m.sender_role === "teacher" ? "م" : "ط"}
+          {roleInitial(m.sender_role)}
         </span>
       ) : null}
       <div
@@ -276,14 +304,17 @@ function VideoThumbnail({
 }
 
 function nameFor(m: ThreadMessage, isMine: boolean) {
-  return isMine ? "أنت" : m.sender_role === "teacher" ? "المدرس" : "الطالب";
+  if (isMine) return "أنت";
+  // A support guest is named by their thread, not by a generic role.
+  if (m.display_name) return m.display_name;
+  return roleLabel(m.sender_role);
 }
 
 export type ConversationThreadHandle = {
   addPending: (msg: Partial<ThreadMessage> & { body: string; kind: string }) => void;
 };
 
-export const ConversationThread = forwardRef<ConversationThreadHandle, {
+export type ConversationThreadProps = {
   conversationId: string;
   initial: ThreadMessage[];
   signed: Record<string, string | null>;
@@ -293,17 +324,52 @@ export const ConversationThread = forwardRef<ConversationThreadHandle, {
   showGrade?: boolean;
   grade?: number | null;
   maxGrade?: number;
-}>(function ConversationThread({
-  conversationId,
-  initial,
-  signed,
-  mineId,
-  fill = false,
-  onReply,
-  showGrade = false,
-  grade = null,
-  maxGrade = 20
-}, ref) {
+  /**
+   * Realtime wiring. Defaults reproduce the assignment chat exactly; the support
+   * chat points these at `support_messages` / `thread_id` / `support-media`.
+   */
+  table?: string;
+  idColumn?: string;
+  bucket?: string;
+  /** Overrides how an incoming realtime row becomes a ThreadMessage. */
+  mapRow?: (row: Record<string, unknown>) => ThreadMessage;
+  /** Fires whenever the viewer is looking at the thread. */
+  onRead?: (id: string) => void;
+  /** Guests are unauthenticated and poll instead of subscribing. */
+  live?: boolean;
+  /**
+   * Polling alternative to realtime, used by guests. Called with the newest
+   * `created_at` currently rendered and expected to return only newer rows.
+   */
+  pollLoad?: (
+    since: string
+  ) => Promise<{ messages: ThreadMessage[]; signed: Record<string, string | null> }>;
+  pollIntervalMs?: number;
+  /** Copy for the zero-message state. */
+  emptyText?: string;
+};
+
+export const ConversationThread = forwardRef<ConversationThreadHandle, ConversationThreadProps>(
+  function ConversationThread({
+    conversationId,
+    initial,
+    signed,
+    mineId,
+    fill = false,
+    onReply,
+    showGrade = false,
+    grade = null,
+    maxGrade = 20,
+    table = "messages",
+    idColumn = "conversation_id",
+    bucket = "message-media",
+    mapRow,
+    onRead,
+    live = true,
+    pollLoad,
+    pollIntervalMs = 6000,
+    emptyText
+  }, ref) {
   const [messages, setMessages] = useState<ThreadMessage[]>(initial);
   const [urls, setUrls] = useState<Record<string, string | null>>(signed);
   const [viewer, setViewer] = useState<{ kind: "image" | "video"; src: string; fileName: string } | null>(null);
@@ -311,9 +377,56 @@ export const ConversationThread = forwardRef<ConversationThreadHandle, {
   const supabaseRef = useRef(createSupabaseBrowserClient());
   const signedRef = useRef(signed);
 
+  // Read latest values inside the realtime callback without re-subscribing.
+  const mapRowRef = useRef(mapRow);
+  const bucketRef = useRef(bucket);
+  const readRef = useRef<(id: string) => void>((id) => markRead(id));
+
   useEffect(() => {
     signedRef.current = signed;
   }, [signed]);
+
+  useEffect(() => {
+    mapRowRef.current = mapRow;
+    bucketRef.current = bucket;
+    readRef.current = onRead ?? ((id: string) => markRead(id));
+  }, [mapRow, onRead, bucket]);
+
+  useEffect(() => {
+    readRef.current(conversationId);
+  }, [conversationId]);
+
+  useEffect(() => {
+    if (!live) return;
+    readRef.current(conversationId);
+
+    const supabase = supabaseRef.current;
+    const channel = supabase
+      .channel(`thread-${conversationId}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table, filter: `${idColumn}=eq.${conversationId}` },
+        async (payload) => {
+          const raw = payload.new as Record<string, unknown>;
+          const m = mapRowRef.current ? mapRowRef.current(raw) : (raw as unknown as ThreadMessage);
+          setMessages((prev) => {
+            if (prev.some((x) => x.id === m.id)) return prev;
+            return [...prev.filter((x) => !x._pending || x.body !== m.body || x.sender_id !== m.sender_id), m];
+          });
+          if (m.storage_path && !signedRef.current[m.id]) {
+            const { data } = await supabase.storage.from(bucketRef.current).createSignedUrl(m.storage_path, 600);
+            setUrls((prev) => ({ ...prev, [m.id]: data?.signedUrl ?? null }));
+          }
+          readRef.current(conversationId);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+    // All three are per-page constants, so this does not churn subscriptions.
+  }, [conversationId, table, idColumn, live]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -327,34 +440,69 @@ export const ConversationThread = forwardRef<ConversationThreadHandle, {
     return map;
   }, [messages]);
 
+  const newestRef = useRef<string>(initial[initial.length - 1]?.created_at ?? "");
   useEffect(() => {
-    markRead(conversationId);
+    const last = messages[messages.length - 1];
+    if (last && !last._pending) newestRef.current = last.created_at;
+  }, [messages]);
 
-    const supabase = supabaseRef.current;
-    const channel = supabase
-      .channel(`thread-${conversationId}`)
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "messages", filter: `conversation_id=eq.${conversationId}` },
-        async (payload) => {
-          const m = payload.new as ThreadMessage;
-          setMessages((prev) => {
-            if (prev.some((x) => x.id === m.id)) return prev;
-            return [...prev.filter((x) => !x._pending || x.body !== m.body || x.sender_id !== m.sender_id), m];
-          });
-          if (m.storage_path && !signedRef.current[m.id]) {
-            const { data } = await supabase.storage.from("message-media").createSignedUrl(m.storage_path, 600);
-            setUrls((prev) => ({ ...prev, [m.id]: data?.signedUrl ?? null }));
-          }
-          markRead(conversationId);
+  /**
+   * Guest polling. Realtime needs a session, so unauthenticated visitors poll
+   * instead — and the timer is stopped outright while the tab is hidden rather
+   * than firing into nothing, resuming with an immediate fetch so a reply that
+   * landed in the background shows up without waiting a full interval.
+   */
+  useEffect(() => {
+    if (!pollLoad) return;
+
+    let cancelled = false;
+    let timer: ReturnType<typeof setInterval> | null = null;
+
+    async function tick() {
+      if (cancelled) return;
+      if (typeof document !== "undefined" && document.hidden) return;
+      try {
+        const { messages: incoming, signed: incomingUrls } = await pollLoad!(newestRef.current);
+        if (cancelled || !incoming.length) return;
+        setMessages((prev) => {
+          const seen = new Set(prev.map((m) => m.id));
+          return [...prev, ...incoming.filter((m) => !seen.has(m.id))];
+        });
+        if (incomingUrls && Object.keys(incomingUrls).length) {
+          setUrls((prev) => ({ ...prev, ...incomingUrls }));
         }
-      )
-      .subscribe();
+        readRef.current(conversationId);
+      } catch {
+        // Transient network failure; the next tick retries.
+      }
+    }
 
-    return () => {
-      void supabase.removeChannel(channel);
+    const start = () => {
+      if (timer) return;
+      timer = setInterval(() => void tick(), pollIntervalMs);
     };
-  }, [conversationId]);
+    const stop = () => {
+      if (!timer) return;
+      clearInterval(timer);
+      timer = null;
+    };
+    const onVisibility = () => {
+      if (document.hidden) {
+        stop();
+      } else {
+        void tick();
+        start();
+      }
+    };
+
+    start();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      cancelled = true;
+      stop();
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [conversationId, pollLoad, pollIntervalMs]);
 
   const handleOpenViewer = useCallback((kind: "image" | "video", src: string, fileName: string) => {
     setViewer({ kind, src, fileName });
@@ -406,7 +554,9 @@ export const ConversationThread = forwardRef<ConversationThreadHandle, {
           <div className="flex size-10 items-center justify-center rounded-full bg-primary/10 text-xl" aria-hidden>
             💬
           </div>
-          <p className="text-sm text-muted-foreground">لا توجد رسائل بعد. ابدأ المحادثة مع المدرس.</p>
+          <p className="text-sm text-muted-foreground">
+            {emptyText ?? "لا توجد رسائل بعد. ابدأ المحادثة مع المدرس."}
+          </p>
         </div>
       ) : null}
 
@@ -442,6 +592,7 @@ export function addPendingMessage(
     deleted_from_storage_at: null,
     reply_to_message_id: msg.reply_to_message_id ?? null,
     created_at: new Date().toISOString(),
+    display_name: msg.display_name ?? null,
     _pending: true
   };
   return [...prev, pending];
