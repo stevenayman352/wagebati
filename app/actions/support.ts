@@ -219,17 +219,12 @@ async function postAsGuest(
   if (replyError) return fail(replyError);
 
   const admin = createSupabaseAdminClient();
-  const { data: thread } = await admin
-    .from("support_threads")
-    .select("guest_name")
-    .eq("id", auth.threadId)
-    .maybeSingle();
 
   const { error } = await admin.from("support_messages").insert({
     thread_id: auth.threadId,
     author_profile_id: null,
     author_kind: "guest",
-    guest_name: thread?.guest_name ?? null,
+    guest_name: auth.guestName,
     kind,
     body: kind === "text" ? parsed.data.body : "",
     storage_path: kind === "text" ? null : parsed.data.storagePath,
@@ -244,7 +239,10 @@ async function postAsGuest(
 
   // The guest's own message should not read as unread to them.
   await markGuestRead(auth.threadId, auth.tokenHash);
-  revalidatePath("/admin/support");
+  // No revalidatePath here on purpose. It only re-rendered the *sender's* route
+  // and forced the admin inbox query to re-run, which is where most of the send
+  // latency came from. The recipient's own screen is already live: signed-in
+  // chat via realtime, guest via pollLoad.
   return ok;
 }
 
@@ -317,8 +315,9 @@ async function postAsUser(formData: FormData, kind: SupportKind): Promise<Action
   if (error) return fail("تعذر إرسال الرسالة.");
 
   await markSupportThreadReadForProfile(profile, parsed.data.conversationId);
-  revalidatePath("/admin/support");
-  revalidatePath("/student/support");
+  // Same reasoning as the guest path: realtime/poll already delivers this row to
+  // the other side, and revalidating the inbox query on every message was the
+  // bulk of the wait.
   return ok;
 }
 

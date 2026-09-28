@@ -194,7 +194,13 @@ function previewFor(msg: { kind: string; body: string } | undefined): string {
 /* Guest access (service role, capability token already verified)     */
 /* ------------------------------------------------------------------ */
 
-export type GuestAuth = { threadId: string; token: string; tokenHash: string };
+export type GuestAuth = {
+  threadId: string;
+  token: string;
+  tokenHash: string;
+  /** Carried on the row the token check already read, to save a round trip on send. */
+  guestName: string | null;
+};
 
 /**
  * Resolves a `?k=` capability token to its thread, or null when the token does
@@ -210,7 +216,7 @@ export async function authenticateGuest(
   const admin = createSupabaseAdminClient();
   const { data } = await admin
     .from("support_threads")
-    .select("id, guest_token_hash")
+    .select("id, guest_token_hash, guest_name")
     .eq("id", threadId)
     .is("profile_id", null)
     .maybeSingle();
@@ -220,7 +226,10 @@ export async function authenticateGuest(
   const tokenHash = hashSupportToken(token);
   if (!supportTokensMatch(data.guest_token_hash as string, tokenHash)) return null;
 
-  return { threadId, token, tokenHash };
+  // `guestName` rides along on the row the token check already fetched. The send
+  // path needs it to stamp the message, and reading it again cost a round trip
+  // on every single message.
+  return { threadId, token, tokenHash, guestName: (data.guest_name as string | null) ?? null };
 }
 
 export async function loadGuestThread(auth: GuestAuth): Promise<SupportThreadPayload | null> {

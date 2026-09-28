@@ -198,7 +198,14 @@ const MessageBubble = memo(function MessageBubble({
             <p className="truncate opacity-80">{quotePreview(replied)}</p>
           </div>
         ) : null}
-        {m.kind === "text" ? <p className="whitespace-pre-wrap leading-snug">{m.body}</p> : null}
+        {/* dir="auto" lets the browser pick the paragraph direction from the first
+          strong character. Without it an RTL container reorders an all-Latin body
+          like "2026@student26" into "@student262026". */}
+      {m.kind === "text" ? (
+        <p dir="auto" className="whitespace-pre-wrap leading-snug">
+          {m.body}
+        </p>
+      ) : null}
         {m.kind === "image" && m.storage_path && !m.deleted_from_storage_at ? (
           <button
             type="button"

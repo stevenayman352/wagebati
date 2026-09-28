@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useMemo, useRef, useState } from "react";
+import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import {
   sendImageMessageAction,
   sendTextMessageAction,
@@ -10,7 +10,7 @@ import {
 import { uploadWithProgress, type UploadHandle } from "@/lib/upload";
 import { VoiceRecorder } from "@/components/voice-recorder";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Progress } from "@/components/ui/progress";
 import { maxBytesFor, allowedMimeFor } from "@/lib/file-rules";
 import { compressImageFile, compressVideoFile, type CompressProgress } from "@/lib/compress";
@@ -107,7 +107,9 @@ export function MessageComposer({
    */
   sendToken?: string;
 }) {
-  const [textState, textAction, sending] = useActionState(actions.text, init);
+  // `isPending` is intentionally not bound: the optimistic bubble plus the
+  // realtime INSERT already confirm the send, and the field must stay editable.
+  const [textState, textAction] = useActionState(actions.text, init);
   const [voiceState, voiceAction, sendingVoice] = useActionState(actions.voice, init);
   const [localError, setLocalError] = useState<string | null>(null);
   const [pending, setPending] = useState<PendingUpload | null>(null);
@@ -117,8 +119,31 @@ export function MessageComposer({
   const [mediaState, setMediaState] = useState<ActionState>(init);
   const [sendingMedia, setSendingMedia] = useState(false);
   const textFormRef = useRef<HTMLFormElement>(null);
+  const textAreaRef = useRef<HTMLTextAreaElement>(null);
+  /**
+   * Controlled so the field can be emptied the instant the user hits send.
+   * React resets a form's DOM values once a `useActionState` action resolves,
+   * which would otherwise wipe whatever the user typed during that round trip.
+   */
+  const [text, setText] = useState("");
+  const lastSentRef = useRef<string | null>(null);
   const videoFileRef = useRef<HTMLInputElement>(null);
   const imageFileRef = useRef<HTMLInputElement>(null);
+
+  // A rejected send should not lose what was typed; put it back in the field.
+  useEffect(() => {
+    if (!textState.ok && textState.message && lastSentRef.current) {
+      setText(lastSentRef.current);
+      lastSentRef.current = null;
+    }
+  }, [textState]);
+
+  /** Grows with the content up to a cap, then scrolls, like WhatsApp/Telegram. */
+  function autoGrow(el: HTMLTextAreaElement | null) {
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 168)}px`;
+  }
 
   // Recreated only when the thread or bucket changes, so the inline defaults
   // below do not become a new function identity on every render.
@@ -219,6 +244,9 @@ export function MessageComposer({
   }
 
   async function handleSend() {
+    // Nothing staged and an empty field: the Enter shortcut must not fire an
+    // action that the server would only reject with "اكتب رسالة أولًا".
+    if (!staged && !text.trim()) return;
     if (staged) {
       setSendingMedia(true);
       setMediaState(init);
@@ -245,7 +273,8 @@ export function MessageComposer({
         });
         setStaged(null);
         onCancelReply();
-        textFormRef.current?.reset();
+        setText("");
+        if (textAreaRef.current) textAreaRef.current.style.height = "";
       }
       return;
     }
@@ -334,7 +363,7 @@ export function MessageComposer({
         </div>
       ) : null}
 
-      <div className="flex items-center gap-1 rounded-full border border-border/70 bg-background p-1 shadow-card transition-shadow focus-within:border-primary/50 focus-within:ring-4 focus-within:ring-primary/15">
+      <div className="flex items-end gap-1 rounded-2xl border border-border/70 bg-background p-1 shadow-card transition-shadow focus-within:border-primary/50 focus-within:ring-4 focus-within:ring-primary/15">
         <div className="relative">
           <Button
             type="button"
@@ -383,24 +412,46 @@ export function MessageComposer({
           ref={textFormRef}
           action={(fd) => {
             const body = String(fd.get("body") ?? "").trim();
-            if (body) {
-              onOptimistic?.({ kind: "text", body, reply_to_message_id: replyTo?.id ? replyTo.id : null });
-            }
+            if (!body) return;
+            lastSentRef.current = body;
+            onOptimistic?.({ kind: "text", body, reply_to_message_id: replyTo?.id ? replyTo.id : null });
             onCancelReply();
+            // Free the field immediately: the action still has a round trip to
+            // make, and the composer must stay usable while it does.
+            setText("");
+            if (textAreaRef.current) textAreaRef.current.style.height = "";
             return textAction(fd);
           }}
-          className="flex min-w-0 flex-1 items-center gap-1.5"
+          className="flex min-w-0 flex-1 items-end gap-1.5"
         >
           <input type="hidden" name="conversationId" value={conversationId} />
           {sendToken ? <input type="hidden" name="guestToken" value={sendToken} /> : null}
           <input type="hidden" name="replyToMessageId" value={replyTo?.id ?? ""} />
-          <Input
+          {/*
+            dir="auto" so a Latin/numeric body like "2026@student26" keeps its
+            order instead of being reordered by the RTL page. The inline
+            minHeight beats the shared Textarea's own min-h-16 whatever the
+            stylesheet order, and autoGrow drives the height past that.
+          */}
+          <Textarea
+            ref={textAreaRef}
             name="body"
+            rows={1}
+            value={text}
+            onChange={(e) => {
+              setText(e.target.value);
+              autoGrow(e.target);
+            }}
             placeholder="اكتب رسالة..."
-            disabled={disabled || sending || sendingVoice || sendingMedia}
-            className="h-8 border-0 bg-transparent px-2 shadow-none focus-visible:ring-0"
+            dir="auto"
+            disabled={disabled || sendingVoice || sendingMedia}
+            style={{ minHeight: "2rem" }}
+            className="max-h-42 resize-none border-0 bg-transparent px-2 py-1 shadow-none focus-visible:ring-0"
             onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
+              // Enter is a newline, as in WhatsApp and Telegram desktop. The
+              // message leaves via the send button, or Ctrl/Cmd+Enter for anyone
+              // who wants the keyboard shortcut.
+              if (e.key === "Enter" && !e.shiftKey && (e.ctrlKey || e.metaKey)) {
                 e.preventDefault();
                 void handleSend();
               }
@@ -421,7 +472,7 @@ export function MessageComposer({
             type={staged ? "button" : "submit"}
             size="icon"
             className="size-8 shrink-0 rounded-full"
-            disabled={disabled || sending || sendingVoice || sendingMedia}
+            disabled={disabled || anyBusy || (!staged && !text.trim())}
             onClick={staged ? () => void handleSend() : undefined}
             aria-label="إرسال"
           >
