@@ -107,9 +107,13 @@ export function MessageComposer({
    */
   sendToken?: string;
 }) {
-  // `isPending` is intentionally not bound: the optimistic bubble plus the
-  // realtime INSERT already confirm the send, and the field must stay editable.
-  const [textState, textAction] = useActionState(actions.text, init);
+  /**
+   * `sending` locks the send button until the action settles. The field itself
+   * stays editable so the next message can be typed while this one is in flight,
+   * but a second tap must not dispatch a duplicate before React has re-rendered
+   * with the cleared value.
+   */
+  const [textState, textAction, sending] = useActionState(actions.text, init);
   const [voiceState, voiceAction, sendingVoice] = useActionState(actions.voice, init);
   const [localError, setLocalError] = useState<string | null>(null);
   const [pending, setPending] = useState<PendingUpload | null>(null);
@@ -127,8 +131,18 @@ export function MessageComposer({
    */
   const [text, setText] = useState("");
   const lastSentRef = useRef<string | null>(null);
+  /**
+   * Set synchronously inside the form action, before the request is dispatched.
+   * `sending` alone is not enough: two taps in the same tick would both read the
+   * not-yet-cleared field and post the message twice.
+   */
+  const sendLockRef = useRef(false);
   const videoFileRef = useRef<HTMLInputElement>(null);
   const imageFileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!sending) sendLockRef.current = false;
+  }, [sending]);
 
   // A rejected send should not lose what was typed; put it back in the field.
   useEffect(() => {
@@ -247,6 +261,9 @@ export function MessageComposer({
     // Nothing staged and an empty field: the Enter shortcut must not fire an
     // action that the server would only reject with "اكتب رسالة أولًا".
     if (!staged && !text.trim()) return;
+    // Second tap while the first send is still in flight: ignore it, otherwise
+    // the message goes out twice.
+    if (sending) return;
     if (staged) {
       setSendingMedia(true);
       setMediaState(init);
@@ -412,7 +429,8 @@ export function MessageComposer({
           ref={textFormRef}
           action={(fd) => {
             const body = String(fd.get("body") ?? "").trim();
-            if (!body) return;
+            if (!body || sendLockRef.current) return;
+            sendLockRef.current = true;
             lastSentRef.current = body;
             onOptimistic?.({ kind: "text", body, reply_to_message_id: replyTo?.id ? replyTo.id : null });
             onCancelReply();
@@ -472,11 +490,15 @@ export function MessageComposer({
             type={staged ? "button" : "submit"}
             size="icon"
             className="size-8 shrink-0 rounded-full"
-            disabled={disabled || anyBusy || (!staged && !text.trim())}
+            disabled={disabled || sending || anyBusy || (!staged && !text.trim())}
             onClick={staged ? () => void handleSend() : undefined}
             aria-label="إرسال"
           >
-            <Send className="size-4" />
+            {sending ? (
+              <span className="size-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+            ) : (
+              <Send className="size-4" />
+            )}
           </Button>
         </form>
         <input ref={videoFileRef} type="file" accept="video/mp4,video/quicktime" className="hidden" onChange={(e) => void handleVideoPick(e)} disabled={disabled} />
