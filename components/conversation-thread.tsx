@@ -418,7 +418,20 @@ export const ConversationThread = forwardRef<ConversationThreadHandle, Conversat
           const m = mapRowRef.current ? mapRowRef.current(raw) : (raw as unknown as ThreadMessage);
           setMessages((prev) => {
             if (prev.some((x) => x.id === m.id)) return prev;
-            return [...prev.filter((x) => !x._pending || x.body !== m.body || x.sender_id !== m.sender_id), m];
+            // Retire the optimistic bubble this row confirms. Matching the
+            // current viewer as well as the row's own sender means a mismatch in
+            // how the two id a message can never leave it on screen next to the
+            // real one.
+            return [
+              ...prev.filter(
+                (x) =>
+                  !x._pending ||
+                  x.kind !== m.kind ||
+                  x.body !== m.body ||
+                  (x.sender_id !== m.sender_id && x.sender_id !== mineId)
+              ),
+              m
+            ];
           });
           if (m.storage_path && !signedRef.current[m.id]) {
             const { data } = await supabase.storage.from(bucketRef.current).createSignedUrl(m.storage_path, 600);
@@ -432,8 +445,8 @@ export const ConversationThread = forwardRef<ConversationThreadHandle, Conversat
     return () => {
       void supabase.removeChannel(channel);
     };
-    // All three are per-page constants, so this does not churn subscriptions.
-  }, [conversationId, table, idColumn, live]);
+    // All of these are per-page constants, so this does not churn subscriptions.
+  }, [conversationId, table, idColumn, live, mineId]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -473,7 +486,25 @@ export const ConversationThread = forwardRef<ConversationThreadHandle, Conversat
         if (cancelled || !incoming.length) return;
         setMessages((prev) => {
           const seen = new Set(prev.map((m) => m.id));
-          return [...prev, ...incoming.filter((m) => !seen.has(m.id))];
+          const fresh = incoming.filter((m) => !seen.has(m.id));
+          if (!fresh.length) return prev;
+          // A pending bubble carries a synthetic id, so the `seen` check above
+          // never matches it and the real row used to land beside it, leaving
+          // every guest message on screen twice. Retire the bubble each new row
+          // confirms before appending.
+          return [
+            ...prev.filter(
+              (x) =>
+                !x._pending ||
+                !fresh.some(
+                  (m) =>
+                    m.kind === x.kind &&
+                    m.body === x.body &&
+                    (m.sender_id === x.sender_id || x.sender_id === mineId)
+                )
+            ),
+            ...fresh
+          ];
         });
         if (incomingUrls && Object.keys(incomingUrls).length) {
           setUrls((prev) => ({ ...prev, ...incomingUrls }));
@@ -509,7 +540,7 @@ export const ConversationThread = forwardRef<ConversationThreadHandle, Conversat
       stop();
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [conversationId, pollLoad, pollIntervalMs]);
+  }, [conversationId, pollLoad, pollIntervalMs, mineId]);
 
   const handleOpenViewer = useCallback((kind: "image" | "video", src: string, fileName: string) => {
     setViewer({ kind, src, fileName });

@@ -54,8 +54,11 @@ export function SupportChat({
   const threadRef = useRef<ConversationThreadHandle>(null);
 
   const mapRow = useCallback(
-    (row: Record<string, unknown>) => supportRowToThreadMessage(row, mineId),
-    [mineId]
+    (row: Record<string, unknown>) =>
+      // `guestToken` is only set in the guest's own view, where guest-authored
+      // rows are the viewer's own and must be marked as such.
+      supportRowToThreadMessage(row, mineId, guestToken ? mineId : undefined),
+    [mineId, guestToken]
   );
 
   const onRead = useCallback((id: string) => {

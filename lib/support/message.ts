@@ -78,12 +78,22 @@ export function toThreadMessage(row: LooseRow, mineId: string, guestId?: string)
 }
 
 /**
- * Same projection for a realtime `postgres_changes` payload, which arrives as a
- * loose record. Guests never hit this path — they poll — so `guestId` is always
- * undefined here and guest-authored rows correctly render as incoming.
+ * Same projection for a realtime `postgres_changes` payload or a poll row, which
+ * arrive as a loose record.
+ *
+ * `guestAuthorId` is the id the guest's *own* rows should carry, and is set only
+ * in the guest's own view. There a thread has exactly one guest, so a row with a
+ * null `author_profile_id` is by definition the viewer's own message. Without it
+ * such a row mapped to `""`, which put the guest's own message on the incoming
+ * side and broke the pending/realtime de-duplication, drawing every message the
+ * guest sent twice.
  */
-export function supportRowToThreadMessage(row: LooseRow, mineId: string): ThreadMessage {
-  return toThreadMessage(row, mineId);
+export function supportRowToThreadMessage(
+  row: LooseRow,
+  mineId: string,
+  guestAuthorId?: string
+): ThreadMessage {
+  return toThreadMessage(row, mineId, guestAuthorId);
 }
 
 /**
