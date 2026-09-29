@@ -200,9 +200,11 @@ const MessageBubble = memo(function MessageBubble({
         ) : null}
         {/* dir="auto" lets the browser pick the paragraph direction from the first
           strong character. Without it an RTL container reorders an all-Latin body
-          like "2026@student26" into "@student262026". */}
+                like "2026@student26" into "@student262026". wrap-anywhere keeps a
+                long unbroken string (a URL, an id) from forcing the bubble wider
+                than the screen and breaking the page layout. */}
       {m.kind === "text" ? (
-        <p dir="auto" className="whitespace-pre-wrap leading-snug">
+            <p dir="auto" className="wrap-anywhere whitespace-pre-wrap leading-snug">
           {m.body}
         </p>
       ) : null}
@@ -460,6 +462,22 @@ export const ConversationThread = forwardRef<ConversationThreadHandle, Conversat
     return map;
   }, [messages]);
 
+  /**
+   * `messages` minus any optimistic bubble that a real message already accounts
+   * for. Keyed on body+kind+sender because a pending row carries a synthetic id.
+   */
+  const visible = useMemo(() => {
+    const real = messages.filter((m) => !m._pending);
+    if (!real.length) return messages;
+    const confirmed = new Set(
+      real.map((m) => `${m.sender_id} ${m.kind} ${m.body}`)
+    );
+    const kept = messages.filter(
+      (m) => !m._pending || !confirmed.has(`${m.sender_id} ${m.kind} ${m.body}`)
+    );
+    return kept.length === messages.length ? messages : kept;
+  }, [messages]);
+
   const newestRef = useRef<string>(initial[initial.length - 1]?.created_at ?? "");
   useEffect(() => {
     const last = messages[messages.length - 1];
@@ -565,7 +583,15 @@ export const ConversationThread = forwardRef<ConversationThreadHandle, Conversat
         backgroundSize: "18px 18px"
       }}
     >
-      {messages.map((m, i) => {
+      {/*
+        Rendered list, with one last guard against a message drawn twice. Every
+        merge already retires the optimistic bubble an incoming row confirms,
+        but this makes a duplicate impossible to see even if a row arrives on a
+        path that did not reconcile: a pending bubble whose kind, body and sender
+        match a real message is dropped at render time. `_pending` entries have
+        synthetic ids, so id-based de-duplication can never catch them.
+      */}
+      {visible.map((m, i) => {
         const mine = m.sender_id === mineId;
         const senderName = nameFor(m, mine);
         const replied = m.reply_to_message_id ? replyMap.get(m.reply_to_message_id) : undefined;

@@ -142,7 +142,7 @@ export function AdminSupportInbox({ rows }: { rows: InboxRow[] }) {
   const selectionCount = selected.size;
 
   return (
-    <div ref={containerRef} className="grid gap-2.5">
+      <div ref={containerRef} className="grid min-w-0 gap-2.5">
       {rows.map((t) => {
         const isSelected = selected.has(t.id);
         const menuOpen = menuId === t.id;
@@ -168,7 +168,7 @@ export function AdminSupportInbox({ rows }: { rows: InboxRow[] }) {
                 }
               }}
               className={cn(
-                "flex w-full items-center gap-3 rounded-2xl border bg-background/60 px-3.5 py-3 text-start transition-colors",
+                "flex w-full min-w-0 items-center gap-3 rounded-2xl border bg-background/60 px-3.5 py-3 text-start transition-colors",
                 "hover:border-primary/40 hover:bg-primary/[0.04]",
                 isSelected ? "border-primary bg-primary/[0.08]" : "border-border/70",
                 selectMode && "cursor-pointer select-none"
@@ -208,8 +208,14 @@ export function AdminSupportInbox({ rows }: { rows: InboxRow[] }) {
                     {t.isGuest ? "زائر" : "طالب"}
                   </span>
                 </span>
-                <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-                  {t.lastMessage || "مفيش رسائل"}
+                {/*
+                  max-w-full matters as much as truncate: this is a grid item,
+                  and a grid item's default min-width is its content width, so a
+                  long preview would otherwise stretch the column and break the
+                  page layout on narrow screens.
+                */}
+                <span className="mt-0.5 block max-w-full truncate text-xs text-muted-foreground">
+                  {t.lastMessage || "��� �����"}
                 </span>
               </span>
 

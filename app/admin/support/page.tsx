@@ -71,7 +71,7 @@ export default async function AdminSupportPage({
       unread={notificationUnread}
       supportUnread={supportUnread}
     >
-      <div className="grid gap-5">
+      <div className="grid min-w-0 gap-5">
         <AdminSupportSearch initial={query} />
 
         <div className="flex flex-wrap gap-2">
