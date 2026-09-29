@@ -42,9 +42,9 @@ export default async function AdminSupportThreadPage({
         </div>
 
         <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-2">
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-muted/70 px-3 py-1 text-xs font-semibold text-muted-foreground">
-            <UserRound className="size-3.5" />
-            {payload.thread.requesterName}
+          <span className="inline-flex min-w-0 items-center gap-1.5 rounded-full bg-muted/70 px-3 py-1 text-xs font-semibold text-muted-foreground">
+            <UserRound className="size-3.5 shrink-0" />
+            <span className="truncate">{payload.thread.requesterName}</span>
           </span>
           <span
             dir="ltr"

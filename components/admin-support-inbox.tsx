@@ -147,7 +147,7 @@ export function AdminSupportInbox({ rows }: { rows: InboxRow[] }) {
         const isSelected = selected.has(t.id);
         const menuOpen = menuId === t.id;
         return (
-          <div key={t.id} className="relative">
+          <div key={t.id} className="relative min-w-0">
             <div
               role="button"
               tabIndex={0}
