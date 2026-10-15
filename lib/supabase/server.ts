@@ -15,9 +15,18 @@ export async function createSupabaseServerClient() {
           return cookieStore.getAll();
         },
         setAll(cookiesToSet: { name: string; value: string; options: Record<string, unknown> }[]) {
-          cookiesToSet.forEach(({ name, value, options }) => {
-            cookieStore.set(name, value, options);
-          });
+          try {
+            cookiesToSet.forEach(({ name, value, options }) => {
+              cookieStore.set(name, value, options);
+            });
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            const isCookieWriteError =
+              message.includes("Cookies can only be modified in a Server Action or Route Handler");
+            if (!isCookieWriteError) {
+              throw error;
+            }
+          }
         }
       }
     }
