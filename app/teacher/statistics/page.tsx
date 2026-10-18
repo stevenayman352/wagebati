@@ -68,40 +68,48 @@ async function loadTeacherStatistics(profileId: string, role: string) {
   const classIds = [
     ...new Set(assignments.map((a) => a.class_id).filter((c): c is string => Boolean(c)))
   ];
+  const assignmentIds = assignments.map((a) => a.id);
+
+  // Both reads are independent of each other — one is keyed by the assignments'
+  // class ids, the other by their own ids — so they run concurrently rather
+  // than as two sequential round trips.
+  const [teacherRowsRes, convRowsRes] = await Promise.all([
+    classIds.length
+      ? admin
+          .from("class_teachers")
+          .select("class_id, teacher:profiles!class_teachers_teacher_id_fkey(full_name)")
+          .in("class_id", classIds)
+      : Promise.resolve({ data: [] as { class_id: string | null; teacher: { full_name: string } | null }[] }),
+    assignmentIds.length
+      ? supabase
+          .from("conversations")
+          .select("id, assignment_id, status, closed_by, student:profiles!conversations_student_id_fkey(full_name, code)")
+          .in("assignment_id", assignmentIds)
+      : Promise.resolve({ data: [] as unknown[] })
+  ]);
+
   const teacherByClass = new Map<string, string[]>();
-  if (classIds.length) {
-    const { data: teacherRows } = await admin
-      .from("class_teachers")
-      .select("class_id, teacher:profiles!class_teachers_teacher_id_fkey(full_name)")
-      .in("class_id", classIds);
-    for (const row of teacherRows ?? []) {
-      const name = (row.teacher as unknown as { full_name: string } | null)?.full_name;
-      if (!row.class_id || !name) continue;
-      const list = teacherByClass.get(row.class_id) ?? [];
-      list.push(name);
-      teacherByClass.set(row.class_id, list);
-    }
+  for (const row of teacherRowsRes.data ?? []) {
+    const name = (row.teacher as unknown as { full_name: string } | null)?.full_name;
+    if (!row.class_id || !name) continue;
+    const list = teacherByClass.get(row.class_id) ?? [];
+    list.push(name);
+    teacherByClass.set(row.class_id, list);
   }
 
-  const assignmentIds = assignments.map((a) => a.id);
-  const { data: convRows } = assignmentIds.length
-    ? await supabase
-        .from("conversations")
-        .select("id, assignment_id, status, closed_by, student:profiles!conversations_student_id_fkey(full_name, code)")
-        .in("assignment_id", assignmentIds)
-    : { data: [] };
-  const conversations = (convRows ?? []) as unknown as ConversationRow[];
+  const conversations = (convRowsRes.data ?? []) as unknown as ConversationRow[];
 
   const conversationIds = conversations.map((c) => c.id);
-  const [subsRes, gradesRes] = await Promise.all([
+  // All three depend only on the conversation ids, so they share one round trip.
+  const [subsRes, gradesRes, chatActive] = await Promise.all([
     conversationIds.length
       ? supabase.from("submissions").select("conversation_id").in("conversation_id", conversationIds)
-      : Promise.resolve({ data: [] }),
+      : Promise.resolve({ data: [] as { conversation_id: string }[] }),
     conversationIds.length
       ? supabase.from("grades").select("conversation_id").in("conversation_id", conversationIds)
-      : Promise.resolve({ data: [] })
+      : Promise.resolve({ data: [] as { conversation_id: string }[] }),
+    fetchStudentChatActivity(supabase, conversationIds)
   ]);
-  const chatActive = await fetchStudentChatActivity(supabase, conversationIds);
 
   return {
     assignments,

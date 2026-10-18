@@ -39,7 +39,7 @@ async function loadAdminAccounts(profileId: string) {
       .eq("user_id", profileId)
       .eq("is_read", false),
     supabase.from("profiles").select("id, full_name, email, code, role, is_active, must_change_password, initial_password, created_at").order("created_at", { ascending: false }),
-    supabase.from("classes").select("id, name"),
+    supabase.from("classes").select("id, name, grade_label"),
     supabase.from("class_students").select("class_id, student_id"),
     supabase.from("class_teachers").select("class_id, teacher_id")
   ]);
@@ -47,7 +47,11 @@ async function loadAdminAccounts(profileId: string) {
   return {
     unreadCount: unreadCount ?? 0,
     users: (usersRes.data ?? []) as unknown as Row[],
-    classNames: (classesRes.data ?? []).map((c) => ({ id: c.id as string, name: c.name as string })),
+    classNames: (classesRes.data ?? []).map((c) => ({
+      id: c.id as string,
+      name: c.name as string,
+      gradeLabel: String(c.grade_label ?? "")
+    })),
     studentLinks: (studentsRes.data ?? []).map((s) => ({ classId: s.class_id as string, userId: s.student_id as string })),
     teacherLinks: (teachersRes.data ?? []).map((t) => ({ classId: t.class_id as string, userId: t.teacher_id as string }))
   };
@@ -89,8 +93,8 @@ export default async function AdminAccountsPage({
 
   return (
     <AdminLayout profile={profile} title="الحسابات" subtitle="إدارة الحسابات" unread={data.unreadCount}>
-      <AdminSection icon={Users} title="الحسابات" subtitle="فعّل أو أوقف الحسابات، اعرض تفاصيلها، أو احذفها.">
-        <AccountsFilter rows={rows} errorText={errorText} />
+      <AdminSection icon={Users} title="الحسابات" subtitle="فعّل أو أوقف الحسابات، اعرض تفاصيلها، انقلها بين الصفوف، أو احذفها.">
+        <AccountsFilter rows={rows} classes={data.classNames} errorText={errorText} />
       </AdminSection>
     </AdminLayout>
   );

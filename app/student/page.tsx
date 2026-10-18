@@ -6,7 +6,6 @@ import { AssignmentItem } from "@/components/assignment-item";
 import { cacheLife, cacheTag } from "next/cache";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { ensureOverdueConversationsClosed } from "@/lib/close-overdue";
 import { NotificationGate } from "@/components/notification-gate";
 import { fetchStudentChatActivity } from "@/lib/assignment-activity";
 import {
@@ -89,8 +88,6 @@ export default async function StudentPage({
 }) {
   const profile = await requireRole(["student"]);
   const { tab } = await searchParams;
-
-  void ensureOverdueConversationsClosed();
 
   if (tab === "account") {
     return (

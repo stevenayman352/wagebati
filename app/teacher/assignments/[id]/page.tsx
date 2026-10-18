@@ -102,20 +102,39 @@ export default async function TeacherAssignmentPage({ params }: { params: Promis
   const profile = await requireRole(["teacher", "admin"]);
   const { id } = await params;
 
+  const isAdmin = profile.role === "admin";
+
+  // The teacher-class authorization read depends only on the signed-in teacher,
+  // not on the assignment row, so it runs alongside the (cached) assignment
+  // load instead of after it — removing a round trip from the critical path.
+  // It lists the teacher's own class memberships (the exact query the teacher
+  // dashboard and assignments list already use) and the membership test against
+  // the loaded assignment's class id below is equivalent to filtering
+  // `class_teachers` by that class id.
+  const taughtClassIdsPromise = isAdmin
+    ? null
+    : (async () => {
+        const supabase = await createSupabaseServerClient();
+        const { data } = await supabase
+          .from("class_teachers")
+          .select("class_id")
+          .eq("teacher_id", profile.id);
+        return (data ?? []).map((row) => row.class_id as string);
+      })();
+
   const loaded = await loadTeacherAssignment(profile.id, id);
-  if (!loaded) notFound();
+  if (!loaded) {
+    // Consume the in-flight authorization read so a rejection can't surface as
+    // an unhandled error on the not-found path.
+    await taughtClassIdsPromise?.catch(() => []);
+    notFound();
+  }
   const { assignment, rows, submittedConversationIds, chatActivityIds } = loaded;
 
-  const isAdmin = profile.role === "admin";
   if (!isAdmin) {
     const classId = assignment.classes?.id;
-    const supabase = await createSupabaseServerClient();
-    const { data: taught } = await supabase
-      .from("class_teachers")
-      .select("class_id")
-      .eq("class_id", classId ?? "")
-      .eq("teacher_id", profile.id);
-    if (!classId || !(taught ?? []).length) notFound();
+    const taughtClassIds = (await taughtClassIdsPromise) ?? [];
+    if (!classId || !taughtClassIds.includes(classId)) notFound();
   }
 
   const hasSubmission = new Set(submittedConversationIds);

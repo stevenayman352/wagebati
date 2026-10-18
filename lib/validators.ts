@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PLATFORM_MAX_BYTES, UPLOADABLE_VIDEO_MIMES } from "@/lib/file-rules";
 
 export const codeSchema = z
   .string()
@@ -21,8 +22,10 @@ export const accountSchema = z.object({
 export const classSchema = z.object({
   name: z.string().trim().min(2).max(80),
   gradeLabel: z
-    .preprocess((v) => (v === null || v === undefined ? "" : v), z.string().trim().max(80))
-    .default("")
+    .string()
+    .trim()
+    .min(2, "السنة/المرحلة مطلوبة")
+    .max(80)
 });
 
 export const assignmentSchema = z.object({
@@ -82,7 +85,7 @@ export const messageSchema = z.object({
   storagePath: z.string().trim().max(600).optional(),
   fileName: z.string().trim().max(255).optional(),
   mimeType: z.string().trim().max(120).optional(),
-  fileSize: z.coerce.number().int().positive().max(5368709120).optional(),
+  fileSize: z.coerce.number().int().positive().max(PLATFORM_MAX_BYTES).optional(),
   durationSeconds: z.coerce.number().int().min(1).max(3600).optional(),
   replyToMessageId: z.string().uuid().optional().nullable()
 });
@@ -120,12 +123,12 @@ const submittedMediaSchema = z.object({
   path: z.string().trim().min(1).max(600),
   name: z.string().trim().min(1).max(255),
   mime: z.string().trim().min(1).max(120),
-  size: z.coerce.number().int().positive()
+  size: z.coerce.number().positive()
 });
 
 export const videoMediaSchema = submittedMediaSchema.refine(
-  (v) => (v.mime === "video/mp4" || v.mime === "video/quicktime") && v.size <= 5368709120,
-  { message: "الفيديو يجب أن يكون MP4/MOV" }
+  (v) => UPLOADABLE_VIDEO_MIMES.includes(v.mime as (typeof UPLOADABLE_VIDEO_MIMES)[number]) && v.size <= PLATFORM_MAX_BYTES,
+  { message: "الفيديو يجب أن يكون MP4 أو MOV" }
 );
 
 export const voiceMediaSchema = submittedMediaSchema.refine(

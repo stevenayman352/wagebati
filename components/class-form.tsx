@@ -37,7 +37,15 @@ export function ClassForm() {
         <form action={formAction} className="space-y-3">
           <div className="space-y-1.5">
             <Label htmlFor="class-name">اسم الصف</Label>
-            <Input id="class-name" name="name" required placeholder="مثال: أول ثانوي (ب)" />
+            <Input id="class-name" name="name" required placeholder="مثال: سنة اولى بنين (A)" />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="class-grade">السنة/المرحلة الدراسية</Label>
+            <Input id="class-grade" name="gradeLabel" required placeholder="مثال: سنة اولى بنين" />
+            <p className="text-xs text-muted-foreground">
+              صفا السنة نفسها يكتبان بنفس القيمة (مثل «سنة اولى بنين» لصف A وB). تُستخدم لتحديد ما إذا كان
+              نقل الطلاب سيُبقي الدرجات أو يمسحها.
+            </p>
           </div>
           <Button type="submit" disabled={pending} className="w-full">
             {pending ? "جار الحفظ..." : "حفظ الصف"}

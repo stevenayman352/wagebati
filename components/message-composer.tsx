@@ -12,16 +12,14 @@ import { VoiceRecorder } from "@/components/voice-recorder";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Progress } from "@/components/ui/progress";
-import { maxBytesFor, allowedMimeFor } from "@/lib/file-rules";
+import { maxBytesFor, allowedMimeFor, isReadableVideo, needsVideoProcessing, videoUploadMime, PLATFORM_MAX_BYTES } from "@/lib/file-rules";
 import { compressImageFile, compressVideoFile, type CompressProgress } from "@/lib/compress";
 import { quotePreview, roleLabel, type ThreadMessage } from "@/components/conversation-thread";
 import { cn } from "@/lib/utils";
 import { Camera, CheckCircle2, CornerUpLeft, Mic, Paperclip, Send, Video, X } from "lucide-react";
 import type { ActionState } from "@/lib/types";
 
-const MAX_VIDEO = maxBytesFor("video");
 const MAX_IMAGE = maxBytesFor("image");
-const ALLOWED_VIDEO = allowedMimeFor("video").split(",");
 const ALLOWED_IMAGE = allowedMimeFor("image").split(",");
 const init: ActionState = { ok: false, message: "" };
 
@@ -176,10 +174,20 @@ export function MessageComposer({
       if (kind === "image") {
         setPending({ kind, name: file.name, stage: "compress", pct: 0, handle: null });
         outFile = await compressImageFile(file, onC);
-      } else {
+      } else if (needsVideoProcessing(file)) {
         setPending({ kind, name: file.name, stage: "compress", pct: 0, handle: null });
         const res = await compressVideoFile(file, onC);
         outFile = res.file;
+        if (outFile.size > PLATFORM_MAX_BYTES) {
+          setPending(null);
+          setLocalError("تعذر ضغط الفيديو إلى الحجم المسموح. جرّب تسجيله مرة أخرى بجودة أقل.");
+          return;
+        }
+      } else {
+        outFile = new File([file], file.name.replace(/\.[^.]+$/, "") + ".mp4", {
+          type: videoUploadMime(file),
+          lastModified: Date.now()
+        });
       }
       if (outFile === file) {
         setPending(null);
@@ -235,12 +243,8 @@ export function MessageComposer({
     const file = e.target.files?.[0] ?? null;
     e.target.value = "";
     if (!file) return;
-    if (!ALLOWED_VIDEO.includes(file.type)) {
-      setLocalError("الفيديو يجب أن يكون MP4 أو MOV.");
-      return;
-    }
-    if (file.size > MAX_VIDEO) {
-      setLocalError("حجم الفيديو كبير جدًا (أكثر من 5GB).");
+    if (!isReadableVideo(file)) {
+      setLocalError("الملف المختار ليس فيديو.");
       return;
     }
     await uploadMedia(file, "video");
@@ -501,7 +505,7 @@ export function MessageComposer({
             )}
           </Button>
         </form>
-        <input ref={videoFileRef} type="file" accept="video/mp4,video/quicktime" className="hidden" onChange={(e) => void handleVideoPick(e)} disabled={disabled} />
+        <input ref={videoFileRef} type="file" accept={allowedMimeFor("video")} className="hidden" onChange={(e) => void handleVideoPick(e)} disabled={disabled} />
         <input ref={imageFileRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(e) => void handleImagePick(e)} disabled={disabled} />
       </div>
 

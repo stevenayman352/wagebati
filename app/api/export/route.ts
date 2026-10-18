@@ -85,9 +85,15 @@ export async function GET(request: NextRequest) {
   const allowed = await canExportTarget(supabase, profile, target as "class" | "student", id);
   if (!allowed) return new Response("Forbidden", { status: 403 });
 
-  const className = await classNameOf(supabase, target === "class" ? id : undefined, target === "student" ? id : undefined);
-  const rows = target === "class" ? await classRows(admin, id, className) : await studentRows(admin, id, className);
-  if (rows.error) return new Response(rows.error, { status: 403 });
+  // The class name and the conversation rows are fetched independently, so run
+  // them together rather than paying two sequential round trips inside a billed
+  // function invocation. `toRow` is applied afterwards because it needs both.
+  const [className, rawRows] = await Promise.all([
+    classNameOf(supabase, target === "class" ? id : undefined, target === "student" ? id : undefined),
+    target === "class" ? classRows(admin, id) : studentRows(admin, id)
+  ]);
+  if (rawRows.error) return new Response(rawRows.error, { status: 403 });
+  const rows = { data: rawRows.data.map((row) => toRow(row as unknown as ExportItem, className)) };
 
   const fileBase =
     target === "class"
@@ -146,7 +152,7 @@ async function canExportTarget(
   return false;
 }
 
-async function classRows(supabase: DB, classId: string, className: string) {
+async function classRows(supabase: DB, classId: string) {
   const { data, error } = await supabase
     .from("conversations")
     .select(
@@ -159,11 +165,11 @@ async function classRows(supabase: DB, classId: string, className: string) {
     .eq("assignment.class_id", classId)
     .order("updated_at", { ascending: false });
 
-  if (error) return { error: error.message, data: [] };
-  return { data: (data ?? []).map((row) => toRow(row as unknown as ExportItem, className)) };
+  if (error) return { error: error.message, data: [] as ExportItem[] };
+  return { data: (data ?? []) as unknown as ExportItem[] };
 }
 
-async function studentRows(supabase: DB, studentId: string, className: string) {
+async function studentRows(supabase: DB, studentId: string) {
   const { data, error } = await supabase
     .from("conversations")
     .select(
@@ -176,8 +182,8 @@ async function studentRows(supabase: DB, studentId: string, className: string) {
     .eq("student_id", studentId)
     .order("updated_at", { ascending: false });
 
-  if (error) return { error: error.message, data: [] };
-  return { data: (data ?? []).map((row) => toRow(row as unknown as ExportItem, className)) };
+  if (error) return { error: error.message, data: [] as ExportItem[] };
+  return { data: (data ?? []) as unknown as ExportItem[] };
 }
 
 // ---------------------------------------------------------------------------

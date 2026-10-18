@@ -57,7 +57,6 @@ export function AdminMobileMenu({ supportUnread = 0 }: { supportUnread?: number 
               <Link
                 key={n.href}
                 href={n.href}
-                prefetch={true}
                 onClick={() => setOpen(false)}
                 aria-current={active ? "page" : undefined}
                 className={cn(

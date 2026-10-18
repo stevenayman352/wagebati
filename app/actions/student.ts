@@ -39,7 +39,7 @@ export async function submitSubmissionAction(_: ActionState, formData: FormData)
     imagesJson: formData.get("imagesJson") || "[]"
   });
 
-  if (!parsed.success) return { ok: false, message: "بيانات الحل غير صالحة: فيديو MP4/MOV حتى 250MB أو صوت MP3 حتى 10MB." };
+  if (!parsed.success) return { ok: false, message: "بيانات الحل غير صالحة: فيديو بأي صيغة أو صوت MP3." };
   if (!parsed.data.video && !parsed.data.voice) return { ok: false, message: "يجب إرسال فيديو الحل أو تسجيل صوتي." };
 
   let images: ParsedImages;

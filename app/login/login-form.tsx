@@ -108,7 +108,6 @@ export function LoginForm({
 
         <Link
           href="/support"
-          prefetch={true}
           className="group relative mt-6 flex items-center gap-3 overflow-hidden rounded-2xl border border-primary/25 bg-primary/[0.06] p-4 text-start shadow-card transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/40 hover:bg-primary/[0.1] hover:shadow-raise active:translate-y-0 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
           style={{ animation: "slide-up 0.3s ease-out both", animationDelay: "190ms" }}
         >

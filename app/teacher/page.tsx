@@ -13,7 +13,6 @@ import {
 } from "@/app/actions/teacher";
 import { DueDateInputs } from "@/components/due-date-inputs";
 import { NotificationBell } from "@/components/notification-bell";
-import { ensureOverdueConversationsClosed } from "@/lib/close-overdue";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { fetchStudentChatActivity } from "@/lib/assignment-activity";
@@ -124,8 +123,6 @@ export default async function TeacherPage({
 }) {
   const profile = await requireRole(["teacher", "admin"]);
   const { tab } = await searchParams;
-
-  void ensureOverdueConversationsClosed();
 
   if (tab === "account") {
     return (
@@ -298,7 +295,6 @@ export default async function TeacherPage({
                 <Link
                   key={key}
                   href={`/teacher/assignments?status=${key}`}
-                  prefetch={true}
                   style={{ animationDelay: `${i * 45}ms` }}
                   className={cn(
                     "group relative overflow-hidden rounded-2xl border p-4 shadow-card transition-all animate-slide-up hover:-translate-y-0.5 hover:shadow-raise active:translate-y-0",
@@ -384,7 +380,7 @@ export default async function TeacherPage({
                     </div>
                     <div className="mt-3 flex flex-wrap gap-2">
                       <Button asChild variant="ghost" size="sm">
-                        <Link href={`/teacher/assignments/${a.id}`} prefetch={true}>متابعة الواجب</Link>
+                        <Link href={`/teacher/assignments/${a.id}`}>متابعة الواجب</Link>
                       </Button>
                     </div>
                   </div>
@@ -410,7 +406,7 @@ export default async function TeacherPage({
               </div>
               <div className="grid gap-2">
                 {(classes ?? []).map((c) => (
-                  <Link key={c.id} href={`/teacher/classes/${c.id}`} prefetch={true} className="flex items-center justify-between gap-2 rounded-xl border border-border/70 px-3 py-2.5 transition-colors hover:border-primary/40 hover:bg-muted/40">
+                  <Link key={c.id} href={`/teacher/classes/${c.id}`} className="flex items-center justify-between gap-2 rounded-xl border border-border/70 px-3 py-2.5 transition-colors hover:border-primary/40 hover:bg-muted/40">
                     <span className="text-sm font-medium">فصل {c.name}</span>
                     <Badge variant="secondary">{studentCounts.get(c.id) ?? 0} طالب</Badge>
                   </Link>

@@ -8,14 +8,12 @@ import { VoiceRecorder } from "@/components/voice-recorder";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { maxBytesFor, allowedMimeFor } from "@/lib/file-rules";
+import { maxBytesFor, allowedMimeFor, isReadableVideo, needsVideoProcessing, PLATFORM_MAX_BYTES } from "@/lib/file-rules";
 import { compressImageFile, compressVideoFile, type CompressProgress } from "@/lib/compress";
 import type { ActionState } from "@/lib/types";
 
-const MAX_VIDEO = maxBytesFor("video");
 const MAX_VOICE = maxBytesFor("voice");
 const MAX_IMAGE = maxBytesFor("image");
-const ALLOWED_VIDEO = allowedMimeFor("video").split(",");
 const ALLOWED_VOICE = allowedMimeFor("voice").split(",");
 const ALLOWED_IMAGE = allowedMimeFor("image").split(",");
 
@@ -60,13 +58,17 @@ export function SubmissionUploader({ conversationId, nextAttempt }: { conversati
       setLocalError("اختر ملف الحل أولًا.");
       return;
     }
-    const limits = mode === "video" ? { allow: ALLOWED_VIDEO, max: MAX_VIDEO } : { allow: ALLOWED_VOICE, max: MAX_VOICE };
-    if (!limits.allow.includes(mainFile.type)) {
-      setLocalError(mode === "video" ? "الفيديو يجب أن يكون MP4 أو MOV." : "التسجيل الصوتي يجب أن يكون MP3.");
+    if (mode === "video") {
+      if (!isReadableVideo(mainFile)) {
+        setLocalError("الملف المختار ليس فيديو.");
+        return;
+      }
+    } else if (!ALLOWED_VOICE.includes(mainFile.type)) {
+      setLocalError("التسجيل الصوتي يجب أن يكون MP3.");
       return;
     }
-    if (mainFile.size > limits.max) {
-      setLocalError(mode === "video" ? "حجم الفيديو كبير جدًا (أكثر من 5GB)." : "حجم التسجيل أكبر من 10MB.");
+    if (mode === "voice" && mainFile.size > MAX_VOICE) {
+      setLocalError("حجم التسجيل أكبر من 10MB.");
       return;
     }
     const badImage = imageFiles.find((f) => !ALLOWED_IMAGE.includes(f.type) || f.size > MAX_IMAGE);
@@ -83,20 +85,26 @@ export function SubmissionUploader({ conversationId, nextAttempt }: { conversati
       const attempt = typeof rpcAttempt === "number" ? rpcAttempt : nextAttempt;
 
       let mainOut = mainFile;
-      if (mode === "video") {
+      if (mode === "video" && needsVideoProcessing(mainFile)) {
         setProgress({ label: "ضغط الفيديو...", pct: 0, handle: null });
         const onC: (p: CompressProgress) => void = (p) => setProgress((prev) => (prev ? { ...prev, pct: p.pct } : prev));
         mainOut = (await compressVideoFile(mainFile, onC)).file;
         setProgress(null);
+        if (mainOut.size > PLATFORM_MAX_BYTES) {
+          setLocalError("تعذر ضغط الفيديو إلى الحجم المسموح. جرّب تسجيله مرة أخرى بجودة أقل.");
+          return;
+        }
       }
 
-      const compressedImages: File[] = [];
-      for (const img of imageFiles) {
-        setProgress({ label: "ضغط الصور...", pct: 0, handle: null });
-        const onI: (p: CompressProgress) => void = (p) => setProgress((prev) => (prev ? { ...prev, pct: p.pct } : prev));
-        compressedImages.push(await compressImageFile(img, onI));
-        setProgress(null);
-      }
+      setProgress({ label: "ضغط الصور...", pct: 0, handle: null });
+      const compressedImages = await Promise.all(
+        imageFiles.map((img) =>
+          compressImageFile(img, (p) =>
+            setProgress((prev) => (prev ? { ...prev, pct: p.pct } : prev))
+          )
+        )
+      );
+      setProgress(null);
 
       const mainPath = await uploadOne(mainOut, `${attempt}`, mode === "video" ? "جار رفع الفيديو..." : "جار رفع التسجيل...");
 
@@ -158,12 +166,12 @@ export function SubmissionUploader({ conversationId, nextAttempt }: { conversati
         </div>
       ) : (
         <div className="grid gap-2">
-          <Label htmlFor="main-file">ملف الفيديو (MP4/MOV حتى 250MB)</Label>
+          <Label htmlFor="main-file">ملف الفيديو (أي صيغة، أي مدة)</Label>
           <input
             id="main-file"
             ref={videoInputRef}
             type="file"
-            accept="video/mp4,video/quicktime"
+            accept={allowedMimeFor("video")}
             className="block w-full cursor-pointer rounded-lg border border-border bg-background px-2.5 py-1.5 text-sm file:me-2 file:rounded-md file:border-0 file:bg-primary/10 file:px-2.5 file:py-1 file:font-medium file:text-primary"
             onChange={(e) => void handleMainPick(e)}
           />

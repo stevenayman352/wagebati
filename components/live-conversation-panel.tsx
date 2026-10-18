@@ -46,7 +46,9 @@ export function LiveConversationPanel({
       )
       .subscribe();
 
-    void markReadOnce(conversationId);
+    // No mark-read here: `ChatPanel` -> `ConversationThread` already marks the
+    // thread read once on mount and whenever the conversation changes. This
+    // panel used to fire a third identical Server Action for the same view.
 
     const timer = setInterval(() => {
       if (!disposed) setNowMs(Date.now());
@@ -78,11 +80,4 @@ export function LiveConversationPanel({
       maxGrade={maxGrade}
     />
   );
-}
-
-async function markReadOnce(conversationId: string) {
-  const fd = new FormData();
-  fd.set("conversationId", conversationId);
-  const { markConversationReadAction } = await import("@/app/actions/messages");
-  void markConversationReadAction(fd);
 }

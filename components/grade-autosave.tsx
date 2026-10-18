@@ -1,10 +1,22 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { saveGradeAction } from "@/app/actions/teacher";
 import type { ActionState } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Trophy, Check } from "lucide-react";
+
+/**
+ * How long typing pauses before the grade is written.
+ *
+ * Every keystroke used to run `saveGradeAction`, which is a Server Action *and*
+ * revalidates `/teacher` plus `/student`. Typing "18" therefore issued two full
+ * function invocations, persisted an intermediate grade of 1 that nobody ever
+ * meant to record, and produced a `grades` change that made every open student
+ * page re-render. Letting the value settle writes the grade that was actually
+ * typed, once.
+ */
+const SAVE_DEBOUNCE_MS = 700;
 
 export function GradeAutosave({
   conversationId,
@@ -15,36 +27,84 @@ export function GradeAutosave({
   maxGrade: number;
   initialGrade: number | null;
 }) {
-  const [value, setValue] = useState(initialGrade ?? "");
+  const [value, setValue] = useState<string>(initialGrade != null ? String(initialGrade) : "");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function handleChange(next: string) {
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Bumped per save so a slow earlier response cannot overwrite the state that
+  // a later keystroke already produced.
+  const runRef = useRef(0);
+
+  const cancelPending = useCallback(() => {
+    if (!timerRef.current) return;
+    clearTimeout(timerRef.current);
+    timerRef.current = null;
+  }, []);
+
+  const isValid = useCallback(
+    (next: string) => {
+      const num = Number(next);
+      return !Number.isNaN(num) && num >= 0 && num <= maxGrade;
+    },
+    [maxGrade]
+  );
+
+  const save = useCallback(
+    async (next: string) => {
+      const run = ++runRef.current;
+      setSaving(true);
+      const fd = new FormData();
+      fd.set("conversationId", conversationId);
+      fd.set("grade", next);
+      fd.set("maxGrade", String(maxGrade));
+      const state: ActionState = await saveGradeAction({ ok: false, message: "" }, fd);
+      if (run !== runRef.current) return;
+      setSaving(false);
+      if (state.ok) {
+        // The page re-renders the grade through LiveGradeRefresh (debounced
+        // realtime subscription) so we don't force a full router.refresh() on
+        // every keystroke-save.
+        setSaved(true);
+      } else setError(state.message || "تعذر حفظ الدرجة.");
+    },
+    [conversationId, maxGrade]
+  );
+
+  // A pending write must not be dropped if the field unmounts mid-debounce.
+  useEffect(
+    () => () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    },
+    []
+  );
+
+  function handleChange(next: string) {
     setValue(next);
     setSaved(false);
     setError(null);
+    cancelPending();
     if (next === "") return;
 
-    const num = Number(next);
-    if (Number.isNaN(num) || num < 0 || num > maxGrade) {
+    if (!isValid(next)) {
       setError("الدرجة يجب أن تكون بين 0 و " + maxGrade);
       return;
     }
 
-    setSaving(true);
-    const fd = new FormData();
-    fd.set("conversationId", conversationId);
-    fd.set("grade", next);
-    fd.set("maxGrade", String(maxGrade));
-    const state: ActionState = await saveGradeAction({ ok: false, message: "" }, fd);
-    setSaving(false);
-    if (state.ok) {
-      // The page re-renders the grade through LiveGradeRefresh (debounced
-      // realtime subscription) so we don't force a full router.refresh() on
-      // every keystroke-save.
-      setSaved(true);
-    } else setError(state.message || "تعذر حفظ الدرجة.");
+    timerRef.current = setTimeout(() => {
+      timerRef.current = null;
+      void save(next);
+    }, SAVE_DEBOUNCE_MS);
+  }
+
+  /** Leaving the field commits what is typed rather than waiting out the timer. */
+  function handleBlur() {
+    if (!timerRef.current) return;
+    const pending = value;
+    cancelPending();
+    if (pending === "" || !isValid(pending)) return;
+    void save(pending);
   }
 
   return (
@@ -66,7 +126,8 @@ export function GradeAutosave({
         max={maxGrade}
         step={0.5}
         value={value}
-        onChange={(e) => void handleChange(e.target.value)}
+        onChange={(e) => handleChange(e.target.value)}
+        onBlur={handleBlur}
         className="w-16 bg-transparent text-end outline-none"
         placeholder="الدرجة"
       />

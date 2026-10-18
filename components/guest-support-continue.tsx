@@ -29,7 +29,7 @@ export function GuestSupportContinue({ href }: { href: string }) {
       </div>
 
       <Button asChild size="lg" className="h-12 w-full gap-2 text-base">
-        <Link href={href} prefetch={true}>
+        <Link href={href}>
           <ArrowLeft className="size-5" />
           كمّل المحادثة
         </Link>

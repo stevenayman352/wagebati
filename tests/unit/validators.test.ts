@@ -12,16 +12,17 @@ import {
   attachmentSchema,
   reopenAssignmentSchema
 } from "@/lib/validators";
+import { PLATFORM_MAX_BYTES } from "@/lib/file-rules";
 
 const UUID = "00000000-0000-0000-0000-000000000001";
 
 describe("videoMediaSchema", () => {
-  it("accepts MP4 up to 5GB", () => {
+  it("accepts MP4 up to the platform ceiling", () => {
     const res = videoMediaSchema.safeParse({
       path: "v/a.mp4",
       name: "a.mp4",
       mime: "video/mp4",
-      size: 5 * 1024 * 1024 * 1024
+      size: PLATFORM_MAX_BYTES
     });
     expect(res.success).toBe(true);
   });
@@ -46,14 +47,24 @@ describe("videoMediaSchema", () => {
     expect(res.success).toBe(false);
   });
 
-  it("rejects video over 5GB", () => {
+  it("rejects a container the app would have to transcode before storing", () => {
+    const res = videoMediaSchema.safeParse({
+      path: "v/a.webm",
+      name: "a.webm",
+      mime: "video/webm",
+      size: 1024
+    });
+    expect(res.success).toBe(false);
+  });
+
+  it("accepts a video of any size (no client ceiling)", () => {
     const res = videoMediaSchema.safeParse({
       path: "v/big.mp4",
       name: "big.mp4",
       mime: "video/mp4",
-      size: 5 * 1024 * 1024 * 1024 + 1
+      size: 10 * 1024 * 1024 * 1024
     });
-    expect(res.success).toBe(false);
+    expect(res.success).toBe(true);
   });
 });
 
@@ -337,7 +348,7 @@ describe("submissionSchema media presence", () => {
     expect(res.success).toBe(true);
   });
 
-  it("rejects an oversized video at the schema level", () => {
+  it("accepts a large video at the schema level (no size ceiling)", () => {
     const res = submissionSchema.safeParse({
       conversationId: UUID,
       attempt: 1,
@@ -345,7 +356,7 @@ describe("submissionSchema media presence", () => {
       voice: null,
       imagesJson: "[]"
     });
-    expect(res.success).toBe(false);
+    expect(res.success).toBe(true);
   });
 });
 

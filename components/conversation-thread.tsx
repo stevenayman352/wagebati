@@ -46,6 +46,21 @@ const ROLE_LABEL: Record<string, string> = {
   guest: "زائر"
 };
 
+/**
+ * Minimum gap between two read-marker Server Actions for the same open thread.
+ * Long enough to collapse a burst of arriving messages into a single call,
+ * short enough that the marker is never meaningfully behind what is on screen.
+ */
+const READ_COALESCE_MS = 4000;
+
+/**
+ * Ceiling for the guest poll's adaptive backoff. A guest tab that has just
+ * loaded, or that has just received a message, still polls at the configured
+ * `pollIntervalMs`; one that has gone quiet is polled progressively less often
+ * so an idle tab stops spending a function invocation every few seconds.
+ */
+const POLL_MAX_INTERVAL_MS = 20_000;
+
 export function roleInitial(role: string): string {
   return ROLE_INITIAL[role] ?? "؟";
 }
@@ -391,6 +406,54 @@ export const ConversationThread = forwardRef<ConversationThreadHandle, Conversat
   const bucketRef = useRef(bucket);
   const readRef = useRef<(id: string) => void>((id) => markRead(id));
 
+  /**
+   * Marking a thread read is a Server Action, i.e. one Vercel function
+   * invocation. It used to fire three times on mount (this effect, the realtime
+   * effect below, and `LiveConversationPanel`) plus once per arriving realtime
+   * row, so a busy conversation spent far more CPU on duplicate read markers
+   * than on the messages themselves. Coalesce instead: the first call always
+   * goes out, and a burst that follows within `READ_COALESCE_MS` is folded into
+   * a single trailing call. Perceived behaviour is unchanged because a read
+   * marker that is a few seconds stale reads as read either way.
+   */
+  const lastReadAtRef = useRef(0);
+  const readTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingReadIdRef = useRef("");
+  const readConversation = useCallback((id: string) => {
+    const now = Date.now();
+    const elapsed = now - lastReadAtRef.current;
+    if (elapsed < READ_COALESCE_MS) {
+      if (readTimerRef.current) return;
+      pendingReadIdRef.current = id;
+      readTimerRef.current = setTimeout(() => {
+        readTimerRef.current = null;
+        lastReadAtRef.current = Date.now();
+        readRef.current(pendingReadIdRef.current);
+      }, READ_COALESCE_MS - elapsed);
+      return;
+    }
+    lastReadAtRef.current = now;
+    readRef.current(id);
+  }, []);
+
+  useEffect(() => {
+    // Switching threads must not let the previous thread's trailing call fire.
+    if (readTimerRef.current) {
+      clearTimeout(readTimerRef.current);
+      readTimerRef.current = null;
+    }
+  }, [conversationId]);
+
+  useEffect(
+    () => () => {
+      if (readTimerRef.current) {
+        clearTimeout(readTimerRef.current);
+        readTimerRef.current = null;
+      }
+    },
+    []
+  );
+
   useEffect(() => {
     signedRef.current = signed;
   }, [signed]);
@@ -402,12 +465,11 @@ export const ConversationThread = forwardRef<ConversationThreadHandle, Conversat
   }, [mapRow, onRead, bucket]);
 
   useEffect(() => {
-    readRef.current(conversationId);
-  }, [conversationId]);
+    readConversation(conversationId);
+  }, [conversationId, readConversation]);
 
   useEffect(() => {
     if (!live) return;
-    readRef.current(conversationId);
 
     const supabase = supabaseRef.current;
     const channel = supabase
@@ -439,7 +501,7 @@ export const ConversationThread = forwardRef<ConversationThreadHandle, Conversat
             const { data } = await supabase.storage.from(bucketRef.current).createSignedUrl(m.storage_path, 600);
             setUrls((prev) => ({ ...prev, [m.id]: data?.signedUrl ?? null }));
           }
-          readRef.current(conversationId);
+          readConversation(conversationId);
         }
       )
       .subscribe();
@@ -448,7 +510,7 @@ export const ConversationThread = forwardRef<ConversationThreadHandle, Conversat
       void supabase.removeChannel(channel);
     };
     // All of these are per-page constants, so this does not churn subscriptions.
-  }, [conversationId, table, idColumn, live, mineId]);
+  }, [conversationId, table, idColumn, live, mineId, readConversation]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -489,19 +551,47 @@ export const ConversationThread = forwardRef<ConversationThreadHandle, Conversat
    * instead — and the timer is stopped outright while the tab is hidden rather
    * than firing into nothing, resuming with an immediate fetch so a reply that
    * landed in the background shows up without waiting a full interval.
+   *
+   * Two things keep the invocation count down without making a waiting guest
+   * wait longer than they already do:
+   *
+   *   - the poll is a Server Action, so every tick is a full function
+   *     invocation. A quiet thread backs off (doubling up to
+   *     `POLL_MAX_INTERVAL_MS`) and any message that does arrive snaps it
+   *     straight back to `pollIntervalMs`;
+   *   - the read marker is not re-sent from here. `pollLoad` already marked the
+   *     guest's thread read server-side inside the same call, and a guest has
+   *     no session for `markSupportThreadReadAction` to act on anyway — the
+   *     call it used to make could only ever have been a no-op.
    */
   useEffect(() => {
     if (!pollLoad) return;
 
     let cancelled = false;
-    let timer: ReturnType<typeof setInterval> | null = null;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let currentMs = pollIntervalMs;
+
+    function schedule(ms: number) {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => void tick(), ms);
+    }
 
     async function tick() {
       if (cancelled) return;
       if (typeof document !== "undefined" && document.hidden) return;
+      const sawMessages = (await run()) ?? 0;
+      if (cancelled) return;
+      currentMs = sawMessages
+        ? pollIntervalMs
+        : Math.min(currentMs * 2, Math.max(POLL_MAX_INTERVAL_MS, pollIntervalMs));
+      schedule(currentMs);
+    }
+
+    /** Returns how many new rows the poll delivered, or null when it failed. */
+    async function run(): Promise<number | null> {
       try {
         const { messages: incoming, signed: incomingUrls } = await pollLoad!(newestRef.current);
-        if (cancelled || !incoming.length) return;
+        if (cancelled || !incoming.length) return 0;
         setMessages((prev) => {
           const seen = new Set(prev.map((m) => m.id));
           const fresh = incoming.filter((m) => !seen.has(m.id));
@@ -527,27 +617,30 @@ export const ConversationThread = forwardRef<ConversationThreadHandle, Conversat
         if (incomingUrls && Object.keys(incomingUrls).length) {
           setUrls((prev) => ({ ...prev, ...incomingUrls }));
         }
-        readRef.current(conversationId);
+        return incoming.length;
       } catch {
         // Transient network failure; the next tick retries.
+        return null;
       }
     }
 
     const start = () => {
       if (timer) return;
-      timer = setInterval(() => void tick(), pollIntervalMs);
+      timer = setTimeout(() => void tick(), currentMs);
     };
     const stop = () => {
       if (!timer) return;
-      clearInterval(timer);
+      clearTimeout(timer);
       timer = null;
     };
     const onVisibility = () => {
       if (document.hidden) {
         stop();
       } else {
+        // Coming back to the tab: poll at full speed again, since the reply the
+        // guest is waiting for may well have landed while they were away.
+        currentMs = pollIntervalMs;
         void tick();
-        start();
       }
     };
 

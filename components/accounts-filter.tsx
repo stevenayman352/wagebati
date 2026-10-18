@@ -15,6 +15,8 @@ import {
 } from "@/components/ui/dialog";
 import { deleteAccountAction, toggleActiveAction, bulkDeleteAccountsAction } from "@/app/actions/admin";
 import { verifyAdminPasswordAction } from "@/app/actions/auth";
+import { TransferStudentsDialog } from "@/components/transfer-students-dialog";
+import type { TransferClass } from "@/lib/transfer";
 import { Label } from "@/components/ui/label";
 import { Search, Download, Trash2, School, KeyRound, Eye, EyeOff, Copy, Check, CheckSquare, Square, Loader2, AlertCircle } from "lucide-react";
 
@@ -41,9 +43,11 @@ export type AccountRow = {
 
 export function AccountsFilter({
   rows,
+  classes,
   errorText
 }: {
   rows: AccountRow[];
+  classes: TransferClass[];
   errorText?: string | null;
 }) {
   const router = useRouter();
@@ -205,6 +209,7 @@ export function AccountsFilter({
   };
 
   const getSelectedAccounts = () => filtered.filter((u) => selectedIds.has(u.id));
+  const selectedStudentRows = getSelectedAccounts().filter((u) => u.role === "student");
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -341,6 +346,11 @@ export function AccountsFilter({
           )}
           {!selectionMode && u.role === "student" ? (
             <>
+              <TransferStudentsDialog
+                classes={classes}
+                students={[{ id: u.id, name: u.full_name, code: u.code, currentClasses: u.classes }]}
+                triggerVariant="ghost"
+              />
               <Button asChild variant="ghost" size="sm">
                 <a href={`/preview?target=student&format=xlsx&id=${u.id}`} className="gap-1.5" title="تصدير إكسل">
                   <Download className="size-3.5" /> إكسل
@@ -401,6 +411,14 @@ export function AccountsFilter({
                 {bulkDeleteError}
               </span>
             )}
+            {selectedStudentRows.length > 0 ? (
+              <TransferStudentsDialog
+                classes={classes}
+                students={selectedStudentRows.map((u) => ({ id: u.id, name: u.full_name, code: u.code, currentClasses: u.classes }))}
+                triggerLabel={`نقل المحدد (${selectedStudentRows.length})`}
+                triggerVariant="default"
+              />
+            ) : null}
             <Button
               variant="destructive"
               size="sm"

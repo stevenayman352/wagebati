@@ -37,13 +37,10 @@ export function AttachmentUploader({ assignmentId }: { assignmentId: string }) {
       return;
     }
 
-    let outFile = file;
-    if (file.size > 200 * 1024) {
-      setProgress({ pct: 0, handle: null });
-      const onC: (p: CompressProgress) => void = (p) => setProgress((p2) => (p2 ? { ...p2, pct: p.pct } : p2));
-      outFile = await compressImageFile(file, onC);
-      setProgress(null);
-    }
+    setProgress({ pct: 0, handle: null });
+    const onC: (p: CompressProgress) => void = (p) => setProgress((p2) => (p2 ? { ...p2, pct: p.pct } : p2));
+    const outFile = await compressImageFile(file, onC);
+    setProgress(null);
 
     const ext = outFile.name.split(".").pop()?.toLowerCase() ?? "jpg";
     const path = `assignment-attachments/${assignmentId}/${crypto.randomUUID()}.${ext}`;

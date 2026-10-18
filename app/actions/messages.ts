@@ -4,6 +4,7 @@ import { revalidatePath, updateTag } from "next/cache";
 import { getCurrentProfile } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { messageSchema, uuidFormSchema } from "@/lib/validators";
+import { PLATFORM_MAX_BYTES, UPLOADABLE_VIDEO_MIMES } from "@/lib/file-rules";
 import type { ActionState } from "@/lib/types";
 
 type AccessContext =
@@ -124,11 +125,11 @@ export async function sendVideoMessageAction(state: ActionState, formData: FormD
     fileSize: formData.get("fileSize"),
     replyToMessageId: formData.get("replyToMessageId") || null
   });
-  if (!parsed.success || parsed.data.kind !== "video") return { ok: false, message: "فيديو غير صالح." };
-  if (parsed.data.mimeType !== "video/mp4" && parsed.data.mimeType !== "video/quicktime") {
-    return { ok: false, message: "الفيديو يجب أن يكون MP4 أو MOV." };
+  if (!parsed.success || parsed.data.kind !== "video" || !parsed.data.mimeType) return { ok: false, message: "فيديو غير صالح." };
+  if (!(UPLOADABLE_VIDEO_MIMES as readonly string[]).includes(parsed.data.mimeType)) {
+    return { ok: false, message: "تعذر حفظ الفيديو. أعد المحاولة." };
   }
-  if ((parsed.data.fileSize ?? 0) > 5368709120) return { ok: false, message: "الفيديو أكبر من 5GB." };
+  if ((parsed.data.fileSize ?? 0) > PLATFORM_MAX_BYTES) return { ok: false, message: "حجم الفيديو أكبر من الحد المسموح." };
 
   const ctx = await conversationAccess(parsed.data.conversationId);
   if (!ctx.ok) return { ok: false, message: ctx.error };
@@ -209,5 +210,12 @@ export async function markConversationReadAction(formData: FormData) {
       { onConflict: "conversation_id,user_id" }
     );
   updateTag(`conversations:${profile.id}`);
-  revalidatePath("/teacher");
+  // Deliberately no `revalidatePath("/teacher")` here. A read marker is written
+  // to `conversation_reads`, and nothing under /teacher reads that table, so
+  // revalidating the route could only discard a cached dashboard whose output
+  // is identical before and after. It did cost a full recompute of
+  // `loadTeacherDashboard` (seven queries plus the render) on the teacher's next
+  // visit — fired three times per conversation opened and once more per
+  // incoming message, all of them redundant. Sending a message still
+  // revalidates, because that genuinely changes the dashboard.
 }

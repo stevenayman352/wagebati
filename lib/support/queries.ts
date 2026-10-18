@@ -136,7 +136,12 @@ export async function loadSupportInbox(
     .from("support_messages")
     .select("thread_id, kind, body, created_at")
     .in("thread_id", ids)
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    // Runaway guard only. Newest-first, so this always covers the threads with
+    // recent activity; without a ceiling a single very long thread made the
+    // whole inbox payload grow without bound, and every byte of it is parsed
+    // in the server function on each render.
+    .limit(2000);
 
   const latestByThread = new Map<string, { kind: string; body: string }>();
   for (const row of (lastRows ?? []) as { thread_id: string; kind: string; body: string }[]) {

@@ -332,7 +332,6 @@ export function TeacherStatistics({ homeworkStats }: { homeworkStats: HomeworkSt
                           >
                             <Link
                               href={`/teacher/conversations/${s.conversationId}`}
-                              prefetch={true}
                               className="group flex items-center gap-3 rounded-xl border border-border/70 bg-card p-3 transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-raise active:translate-y-0"
                             >
                               <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-extrabold text-primary">

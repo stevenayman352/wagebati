@@ -105,7 +105,6 @@ export function NotificationFeed({ userId, initial, initialUnread }: { userId: s
           <Link
             key={n.id}
             href={n.href}
-            prefetch={true}
             className="rounded-lg border bg-card transition-colors hover:bg-muted"
             onClick={() => markOne(n)}
           >

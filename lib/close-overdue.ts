@@ -1,6 +1,26 @@
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
+/**
+ * Minimum gap between two sweeps, per server instance.
+ *
+ * `proxy.ts` already throttles its own call, but the teacher and student
+ * dashboards call this directly on every render — and a dashboard render is not
+ * rare: a `router.refresh()`, a tab change, or any action that revalidates the
+ * route produces one. Each call is a service-role RPC (with a three-query
+ * fallback), so an unthrottled caller spent real CPU re-checking work that had
+ * almost certainly just been done. Throttling inside the shared helper covers
+ * every caller with one rule; the worst case is that a deadline passes up to a
+ * minute before its conversations close, which is what `proxy.ts` already
+ * accepted.
+ */
+const MIN_INTERVAL_MS = 60_000;
+let lastRunAt = 0;
+
 export async function ensureOverdueConversationsClosed(): Promise<number> {
+  const now = Date.now();
+  if (now - lastRunAt < MIN_INTERVAL_MS) return 0;
+  lastRunAt = now;
+
   const admin = createSupabaseAdminClient();
 
   try {

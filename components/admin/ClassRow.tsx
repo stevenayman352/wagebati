@@ -6,8 +6,13 @@ import { Badge } from "@/components/ui/badge";
 import { Download, Trash2 } from "lucide-react";
 import { useActionState } from "react";
 import { deleteClassAction } from "@/app/actions/admin";
+import { TransferClassStudentsDialog } from "@/components/transfer-class-students-dialog";
+import { EditClassDialog } from "@/components/edit-class-dialog";
+import type { TransferClass } from "@/lib/transfer";
 import type { ActionState } from "@/lib/types";
 import { cn } from "@/lib/utils";
+
+type ClassStudent = { id: string; name: string; code: string };
 
 type ClassRowProps = {
   id: string;
@@ -15,9 +20,11 @@ type ClassRowProps = {
   gradeLabel: string | null;
   students: number;
   teachers: number;
+  classStudents: ClassStudent[];
+  allClasses: TransferClass[];
 };
 
-export function ClassRow({ id, name, gradeLabel, students, teachers }: ClassRowProps) {
+export function ClassRow({ id, name, gradeLabel, students, teachers, classStudents, allClasses }: ClassRowProps) {
   const [deleteState, requestDelete, isDeleting] = useActionState(
     async (prevState: ActionState, formData: FormData) => {
       return await deleteClassAction(prevState, formData);
@@ -31,13 +38,19 @@ export function ClassRow({ id, name, gradeLabel, students, teachers }: ClassRowP
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-2">
           <span className="font-semibold">{name}</span>
-          {gradeLabel ? <Badge variant="secondary">{gradeLabel}</Badge> : null}
+          {gradeLabel ? <Badge variant="secondary">{gradeLabel}</Badge> : <Badge variant="outline">بدون سنة</Badge>}
         </div>
         <p className="text-xs text-muted-foreground">
           {students} طلاب · {teachers} مُدرّسون
         </p>
       </div>
-      <div className="flex gap-1.5">
+      <div className="flex flex-wrap gap-1.5">
+        <TransferClassStudentsDialog
+          sourceClass={{ id, name, gradeLabel: String(gradeLabel ?? "") }}
+          students={classStudents}
+          allClasses={allClasses}
+        />
+        <EditClassDialog id={id} name={name} gradeLabel={String(gradeLabel ?? "")} />
         <Button asChild variant="outline" size="sm">
           <a href={`/preview?target=class&format=xlsx&id=${id}`} className="gap-1">
             <Download className="size-3.5" /> إكسل
