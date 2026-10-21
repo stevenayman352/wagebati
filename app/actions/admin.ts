@@ -5,7 +5,8 @@ import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { accountSchema, classSchema, codeSchema, uuidSchema } from "@/lib/validators";
+import { removeGradeRow, writeGradeRow } from "@/lib/admin-grades";
+import { accountSchema, classSchema, codeSchema, gradeSchema, uuidSchema } from "@/lib/validators";
 import { accountEmailForCode, generateAccountCode } from "@/lib/accounts";
 import { MAX_IMPORT_FILE_BYTES, parseImportFile, validateImportRows } from "@/lib/import-accounts";
 import {
@@ -23,6 +24,7 @@ function invalidateAdminCaches(adminId: string) {
   updateTag(`accounts:${adminId}`);
   updateTag(`classes:${adminId}`);
   updateTag(`transfer:${adminId}`);
+  updateTag(`grades:${adminId}`);
 }
 
 export async function createAccountAction(_: ActionState, formData: FormData): Promise<ActionState> {
@@ -963,4 +965,111 @@ export async function deleteAssignmentByTitleAction(_: ActionState, formData: Fo
     message: `وُجد ${matches.length} وأجـب. اضغط «تأكيد الحذف» تحت الواجب الصحيح — لا يمكن التراجع.`,
     matches
   };
+}
+
+// ---------------------------------------------------------------------------
+// Admin grade sheet
+// ---------------------------------------------------------------------------
+
+/**
+ * Reads the conversation an admin is about to grade and returns the ids the
+ * write needs, plus the assignment's full mark.
+ *
+ * The conversation id arrives from the browser, so nothing about it is trusted:
+ * the row is looked up here and the assignment/student ids are taken from the
+ * database, never from the form.
+ */
+async function adminGradeTarget(conversationId: string) {
+  const supabase = await createSupabaseServerClient();
+  const { data } = await supabase
+    .from("conversations")
+    .select("id, assignment_id, student_id, assignment:assignments(title, max_grade, teacher_id)")
+    .eq("id", conversationId)
+    .single();
+
+  if (!data) return null;
+
+  const assignmentEmbed = data.assignment as unknown as
+    | { max_grade?: number; teacher_id?: string }
+    | { max_grade?: number; teacher_id?: string }[]
+    | null;
+  const assignmentRow = Array.isArray(assignmentEmbed) ? assignmentEmbed[0] : assignmentEmbed;
+  const maxGrade = assignmentRow?.max_grade;
+
+  return {
+    conversationId: data.id as string,
+    assignmentId: data.assignment_id as string,
+    studentId: data.student_id as string,
+    teacherId: assignmentRow?.teacher_id ?? null,
+    maxGrade: typeof maxGrade === "number" ? maxGrade : undefined
+  };
+}
+
+/**
+ * Saves one cell of the admin grade sheet.
+ *
+ * Mirrors `saveGradeAction` (app/actions/teacher.ts) — same columns, same
+ * `conversation_id` conflict target, same `needs_revision` reset — but the
+ * grader is the admin. `graded_by` stays NOT NULL, so the row is attributed to
+ * the admin's own profile.
+ *
+ * `clear=1` deletes the grade instead of writing one. Overwriting with 0 would
+ * be a different thing entirely: it is a real mark of zero, while clearing
+ * means "no grade recorded", which is what the sheet shows as an empty cell.
+ */
+export async function saveAdminGradeAction(_: ActionState, formData: FormData): Promise<ActionState> {
+  const profile = await requireRole(["admin"]);
+  const conversationId = String(formData.get("conversationId") ?? "");
+  const clear = formData.get("clear") === "1";
+
+  if (!conversationId) return { ok: false, message: "معرف المحادثة مطلوب." };
+
+  const target = await adminGradeTarget(conversationId);
+  if (!target) return { ok: false, message: "المحادثة غير موجودة." };
+
+  const supabase = await createSupabaseServerClient();
+
+  if (clear) {
+    const { error } = await removeGradeRow(target.conversationId);
+    if (error) return { ok: false, message: error };
+
+    invalidateAdminCaches(profile.id);
+    invalidateAssignmentCaches(target.teacherId, [target.studentId]);
+    revalidatePath("/admin/grades");
+    return { ok: true, message: "تم مسح الدرجة." };
+  }
+
+  const parsed = gradeSchema.safeParse({
+    conversationId: target.conversationId,
+    grade: formData.get("grade"),
+    note: "",
+    maxGrade: target.maxGrade
+  });
+
+  if (!parsed.success) {
+    const gradeIssues = parsed.error.issues.find((i) => i.path[0] === "grade");
+    return {
+      ok: false,
+      message: gradeIssues
+        ? "الدرجة يجب ألا تتجاوز الدرجة العظمى المحددة للواجب."
+        : "تحقق من الدرجة."
+    };
+  }
+
+  const { error } = await writeGradeRow({
+    conversationId: target.conversationId,
+    assignmentId: target.assignmentId,
+    studentId: target.studentId,
+    grade: parsed.data.grade,
+    gradedBy: profile.id
+  });
+
+  if (error) return { ok: false, message: error };
+
+  await supabase.from("conversations").update({ needs_revision: false }).eq("id", target.conversationId);
+
+  invalidateAdminCaches(profile.id);
+  invalidateAssignmentCaches(target.teacherId, [target.studentId]);
+  revalidatePath("/admin/grades");
+  return { ok: true, message: "تم حفظ الدرجة." };
 }

@@ -1,4 +1,4 @@
-import { LayoutGrid, Users, GraduationCap, RefreshCw, Trash2, LifeBuoy, ArrowRightLeft, type LucideIcon } from "lucide-react";
+import { LayoutGrid, Users, GraduationCap, RefreshCw, Trash2, LifeBuoy, ArrowRightLeft, Table2, type LucideIcon } from "lucide-react";
 
 /**
  * Single source for the admin menu. This array used to be copy-pasted into both
@@ -17,6 +17,7 @@ export const ADMIN_NAV: AdminNavItem[] = [
   { href: "/admin/support", label: "الدعم", icon: LifeBuoy },
   { href: "/admin/accounts", label: "الحسابات", icon: Users },
   { href: "/admin/classes", label: "الصفوف", icon: GraduationCap },
+  { href: "/admin/grades", label: "جدول الدرجات", icon: Table2 },
   { href: "/admin/transfer", label: "نقل الطلاب", icon: ArrowRightLeft },
   { href: "/admin/reset-password", label: "إعادة تعيين كلمة المرور", icon: RefreshCw },
   { href: "/admin/delete-assignment", label: "حذف واجب", icon: Trash2 }

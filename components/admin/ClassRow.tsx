@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Download, Trash2 } from "lucide-react";
+import { Download, Table2, Trash2 } from "lucide-react";
 import { useActionState } from "react";
 import { deleteClassAction } from "@/app/actions/admin";
 import { TransferClassStudentsDialog } from "@/components/transfer-class-students-dialog";
@@ -51,6 +51,11 @@ export function ClassRow({ id, name, gradeLabel, students, teachers, classStuden
           allClasses={allClasses}
         />
         <EditClassDialog id={id} name={name} gradeLabel={String(gradeLabel ?? "")} />
+        <Button asChild variant="outline" size="sm">
+          <a href={`/admin/grades?class=${id}`} className="gap-1">
+            <Table2 className="size-3.5" /> الدرجات
+          </a>
+        </Button>
         <Button asChild variant="outline" size="sm">
           <a href={`/preview?target=class&format=xlsx&id=${id}`} className="gap-1">
             <Download className="size-3.5" /> إكسل
