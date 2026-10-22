@@ -236,6 +236,9 @@ export default async function TeacherPage({
   const chatActive = new Set(data.chatActivityIds);
 
   const activeAssignmentIds = new Set(activeRows.map((r) => r.id));
+  // Classes with at least one active homework: only these contribute students
+  // to the dashboard cards, so only these show a student count in the list.
+  const activeClassIds = new Set(activeRows.map((r) => r.class_id));
   const conversationsByAssignment = new Map<string, DashboardConversation[]>();
   for (const c of conversations) {
     const aid = c.assignment?.id;
@@ -465,7 +468,13 @@ export default async function TeacherPage({
                 {(classes ?? []).map((c) => (
                   <Link key={c.id} href={`/teacher/classes/${c.id}`} className="flex items-center justify-between gap-2 rounded-xl border border-border/70 px-3 py-2.5 transition-colors hover:border-primary/40 hover:bg-muted/40">
                     <span className="text-sm font-medium">فصل {c.name}</span>
-                    <Badge variant="secondary">{studentCounts.get(c.id) ?? 0} طالب</Badge>
+                    {activeClassIds.has(c.id) ? (
+                      <Badge variant="secondary">{studentCounts.get(c.id) ?? 0} طالب</Badge>
+                    ) : (
+                      <Badge variant="secondary" className="font-normal text-muted-foreground">
+                        لا يوجد واجب نشط
+                      </Badge>
+                    )}
                   </Link>
                 ))}
                 {(classes ?? []).length === 0 ? <p className="text-sm text-muted-foreground">لا توجد صفوف.</p> : null}
