@@ -3,33 +3,13 @@ import { AdminSection } from "@/components/admin-section";
 import { ImportTransfersForm } from "@/components/import-transfers-form";
 import { importTransfersAction } from "@/app/actions/admin";
 import { requireRole } from "@/lib/auth";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { cacheLife, cacheTag } from "next/cache";
 import { FileSpreadsheet, Info } from "lucide-react";
-
-async function loadTransferPage(profileId: string) {
-  "use cache: private";
-  cacheTag(`transfer:${profileId}`);
-  cacheLife({ stale: 60 });
-
-  const supabase = await createSupabaseServerClient();
-  const [{ count: unreadCount }] = await Promise.all([
-    supabase
-      .from("notifications")
-      .select("id", { count: "exact", head: true })
-      .eq("user_id", profileId)
-      .eq("is_read", false)
-  ]);
-
-  return { unreadCount: unreadCount ?? 0 };
-}
 
 export default async function AdminTransferPage() {
   const profile = await requireRole(["admin"]);
-  const { unreadCount } = await loadTransferPage(profile.id);
 
   return (
-    <AdminLayout profile={profile} title="نقل الطلاب" subtitle="نقل جماعي بين الصفوف" unread={unreadCount}>
+    <AdminLayout profile={profile} title="نقل الطلاب" subtitle="نقل جماعي بين الصفوف">
       <div className="grid gap-5">
         <AdminSection
           icon={FileSpreadsheet}

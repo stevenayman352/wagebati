@@ -3,7 +3,6 @@ import { cacheLife, cacheTag } from "next/cache";
 import { Badge } from "@/components/ui/badge";
 import { PageShell } from "@/components/page-shell";
 import { AppNav } from "@/components/app-nav";
-import { NotificationBell } from "@/components/notification-bell";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { Users, ChevronUp } from "lucide-react";
@@ -15,12 +14,7 @@ async function loadTeacherClasses(profileId: string, role: string) {
 
   const supabase = await createSupabaseServerClient();
 
-  const [{ count: unreadCount }, myClassesRes, enrollRes] = await Promise.all([
-    supabase
-      .from("notifications")
-      .select("id", { count: "exact", head: true })
-      .eq("user_id", profileId)
-      .eq("is_read", false),
+  const [myClassesRes, enrollRes] = await Promise.all([
     supabase
       .from("class_teachers")
       .select("class_id")
@@ -38,7 +32,6 @@ async function loadTeacherClasses(profileId: string, role: string) {
   const { data: classes } = await classesQuery;
 
   return {
-    unreadCount: unreadCount ?? 0,
     classes: (classes ?? []) as { id: string; name: string; grade_label: string | null }[],
     enrollments: (enrollRes.data ?? []).map((e) => (e as { class_id: string }).class_id)
   };
@@ -62,9 +55,6 @@ export default async function TeacherClassesPage() {
           <div>
             <h1 className="text-[var(--text-h1)] font-extrabold">الفصول</h1>
             <p className="mt-0.5 text-sm text-muted-foreground">أختر الفصل للاطلاع على طلابه</p>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <NotificationBell userId={profile.id} initialUnread={data.unreadCount} />
           </div>
         </header>
 

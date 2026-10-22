@@ -1,13 +1,12 @@
 import { LogoutButton } from "@/components/logout-button";
-import { NotificationBell } from "@/components/notification-bell";
-import { AppNav } from "@/components/app-nav";
-import { PageShell } from "@/components/page-shell";
+import { AppNav } from "@/components/app-nav";import { PageShell } from "@/components/page-shell";
 import { AssignmentItem } from "@/components/assignment-item";
 import { cacheLife, cacheTag } from "next/cache";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { NotificationGate } from "@/components/notification-gate";
 import { fetchStudentChatActivity } from "@/lib/assignment-activity";
+import { isAssignmentVisibleToStudent } from "@/lib/student-visibility";
 import {
   computeAssignmentStatus,
   STATUS_LABEL,
@@ -28,6 +27,9 @@ type Row = {
     due_at?: string | null;
     max_grade?: number;
     status?: string;
+    class_id?: string;
+    published_at?: string | null;
+    created_at?: string;
     classes?: { name?: string } | null;
   } | null;
 };
@@ -55,28 +57,34 @@ async function loadStudentDashboard(studentId: string) {
 
   const supabase = await createSupabaseServerClient();
 
-  const [convRes, unreadRes] = await Promise.all([
+  const [convRes, enrollRes] = await Promise.all([
     supabase
       .from("conversations")
       .select(
-        "id, status, closed_by, closed_at, grades(grade), submissions(count), assignment:assignments!inner(title, due_at, max_grade, status, classes!inner(name))"
+        "id, status, closed_by, closed_at, grades(grade), submissions(count), assignment:assignments!inner(title, due_at, max_grade, status, class_id, published_at, created_at, classes!inner(name))"
       )
       .eq("student_id", studentId)
       .order("created_at", { ascending: false }),
-    supabase
-      .from("notifications")
-      .select("id", { count: "exact", head: true })
-      .eq("user_id", studentId)
-      .eq("is_read", false)
+    // Current class memberships. `created_at` is when the student joined the
+    // class (a transfer deletes the old row and inserts the new one), which is
+    // what decides whether homework published earlier belongs to them.
+    supabase.from("class_students").select("class_id, created_at").eq("student_id", studentId)
   ]);
   const rows = (convRes.data ?? []) as unknown as Row[];
 
   const conversationIds = rows.map((r) => r.id);
   const chatActive = await fetchStudentChatActivity(supabase, conversationIds);
 
+  // Plain record rather than a Map: the loader is cached and the value has to
+  // stay serialisable.
+  const joinedByClass: Record<string, string> = {};
+  for (const e of (enrollRes.data ?? []) as { class_id: string; created_at: string }[]) {
+    joinedByClass[e.class_id] = e.created_at;
+  }
+
   return {
     rows,
-    unreadCount: unreadRes.count ?? 0,
+    joinedByClass,
     chatActivityIds: [...chatActive]
   };
 }
@@ -124,12 +132,33 @@ export default async function StudentPage({
   }
 
   const data = await loadStudentDashboard(profile.id);
-  const rows = data.rows;
-  const unreadCount = data.unreadCount;
   const chatActive = new Set(data.chatActivityIds);
 
   // eslint-disable-next-line react-hooks/purity
   const nowMs = Date.now();
+
+  // Homework is only shown for classes the student is in right now, and only
+  // if it did not already end before they joined that class. A transfer used
+  // to backfill a conversation for every published assignment of the new
+  // class, which made months of old homework appear as "لم يسلم بعد".
+  const rows = data.rows.filter((r) => {
+    const a = r.assignment;
+    if (!a) return false;
+    const grade = r.grades?.grade;
+    return isAssignmentVisibleToStudent({
+      assignmentStatus: a.status ?? "",
+      dueAt: a.due_at ?? null,
+      publishedAt: a.published_at ?? null,
+      createdAt: a.created_at ?? "",
+      joinedAt: data.joinedByClass[a.class_id ?? ""] ?? null,
+      hasActivity:
+        (grade !== undefined && grade !== null) ||
+        (r.submissions?.[0]?.count ?? 0) > 0 ||
+        chatActive.has(r.id),
+      nowMs
+    });
+  });
+
   const statusOf = new Map<string, StudentStatusKey>();
   for (const r of rows) {
     const grade = r.grades?.grade;
@@ -179,9 +208,6 @@ export default async function StudentPage({
                 <h1 className="font-amiri text-2xl font-bold leading-tight">أهلًا {firstName}</h1>
                 <p className="text-sm text-muted-foreground">احفظ وسمع كوس يا بطل</p>
               </div>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <NotificationBell userId={profile.id} initialUnread={unreadCount ?? 0} />
             </div>
           </header>
 

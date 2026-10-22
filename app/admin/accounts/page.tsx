@@ -32,12 +32,7 @@ async function loadAdminAccounts(profileId: string) {
 
   const supabase = await createSupabaseServerClient();
 
-  const [{ count: unreadCount }, usersRes, classesRes, studentsRes, teachersRes] = await Promise.all([
-    supabase
-      .from("notifications")
-      .select("id", { count: "exact", head: true })
-      .eq("user_id", profileId)
-      .eq("is_read", false),
+  const [usersRes, classesRes, studentsRes, teachersRes] = await Promise.all([
     supabase.from("profiles").select("id, full_name, email, code, role, is_active, must_change_password, initial_password, created_at").order("created_at", { ascending: false }),
     supabase.from("classes").select("id, name, grade_label"),
     supabase.from("class_students").select("class_id, student_id"),
@@ -45,7 +40,6 @@ async function loadAdminAccounts(profileId: string) {
   ]);
 
   return {
-    unreadCount: unreadCount ?? 0,
     users: (usersRes.data ?? []) as unknown as Row[],
     classNames: (classesRes.data ?? []).map((c) => ({
       id: c.id as string,
@@ -92,7 +86,7 @@ export default async function AdminAccountsPage({
   const errorText = params.error ? errorMessages[params.error] ?? null : null;
 
   return (
-    <AdminLayout profile={profile} title="الحسابات" subtitle="إدارة الحسابات" unread={data.unreadCount}>
+    <AdminLayout profile={profile} title="الحسابات" subtitle="إدارة الحسابات">
       <AdminSection icon={Users} title="الحسابات" subtitle="فعّل أو أوقف الحسابات، اعرض تفاصيلها، انقلها بين الصفوف، أو احذفها.">
         <AccountsFilter rows={rows} classes={data.classNames} errorText={errorText} />
       </AdminSection>

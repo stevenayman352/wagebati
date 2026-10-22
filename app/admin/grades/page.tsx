@@ -129,16 +129,6 @@ async function loadGradeSheet(
   };
 }
 
-async function countUnread(userId: string): Promise<number> {
-  const supabase = await createSupabaseServerClient();
-  const { count } = await supabase
-    .from("notifications")
-    .select("id", { count: "exact", head: true })
-    .eq("user_id", userId)
-    .eq("is_read", false);
-  return count ?? 0;
-}
-
 export default async function AdminGradesPage({
   searchParams
 }: {
@@ -151,17 +141,13 @@ export default async function AdminGradesPage({
   const selectedId =
     classParam && classes.some((c) => c.id === classParam) ? classParam : classes[0]?.id ?? "";
 
-  const [sheet, unread] = await Promise.all([
-    selectedId ? loadGradeSheet(profile.id, selectedId) : Promise.resolve(null),
-    countUnread(profile.id)
-  ]);
+  const sheet = selectedId ? await loadGradeSheet(profile.id, selectedId) : null;
 
   return (
     <AdminLayout
       profile={profile}
       title="جدول الدرجات"
       subtitle="تعديل درجات الطلاب مباشرة"
-      unread={unread}
     >
       <AdminSection
         icon={Table2}

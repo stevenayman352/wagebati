@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import { NotificationBell } from "@/components/notification-bell";
 import { AdminSidebar } from "@/components/admin-sidebar";
 import { AdminMobileMenu } from "@/components/admin-mobile-menu";
 import { supportUnreadTotal } from "@/lib/support/reader";
@@ -18,14 +17,12 @@ export async function AdminLayout({
   profile,
   title,
   subtitle,
-  unread,
   supportUnread,
   children
 }: {
   profile: Profile;
   title: string;
   subtitle: string;
-  unread: number;
   supportUnread?: number;
   children: ReactNode;
 }) {
@@ -45,7 +42,6 @@ export async function AdminLayout({
                 <p className="hidden text-xs text-muted-foreground sm:block">{subtitle} · {profile.full_name}</p>
               </div>
             </div>
-            <NotificationBell userId={profile.id} initialUnread={unread} />
           </div>
         </header>
 

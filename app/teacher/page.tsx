@@ -12,7 +12,6 @@ import {
   createAssignmentAction
 } from "@/app/actions/teacher";
 import { DueDateInputs } from "@/components/due-date-inputs";
-import { NotificationBell } from "@/components/notification-bell";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { fetchStudentChatActivity } from "@/lib/assignment-activity";
@@ -64,16 +63,11 @@ async function loadTeacherDashboard(profileId: string, role: string) {
 
   const supabase = await createSupabaseServerClient();
 
-  const [{ data: myClasses }, { count: unreadCount }, enrollRes] = await Promise.all([
+  const [{ data: myClasses }, enrollRes] = await Promise.all([
     supabase
       .from("class_teachers")
       .select("class_id")
       .eq("teacher_id", profileId),
-    supabase
-      .from("notifications")
-      .select("id", { count: "exact", head: true })
-      .eq("user_id", profileId)
-      .eq("is_read", false),
     supabase.from("class_students").select("class_id, student_id")
   ]);
 
@@ -139,7 +133,6 @@ async function loadTeacherDashboard(profileId: string, role: string) {
 
   return {
     classTeacherIds: classIds,
-    unreadCount: unreadCount ?? 0,
     classes: classesRes.data ?? [],
     conversations: convRows,
     assignments: assignmentsRes.data ?? [],
@@ -327,9 +320,6 @@ export default async function TeacherPage({
         <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="mt-3 font-amiri text-3xl font-bold">أهلًا يا {profile.full_name?.trim().split(/\s+/).slice(0, 2).join(" ") ?? "مُدرّس"}</h1>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <NotificationBell userId={profile.id} initialUnread={data.unreadCount} />
           </div>
         </header>
 

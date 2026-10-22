@@ -16,12 +16,7 @@ async function loadAdminClasses(profileId: string) {
 
   const supabase = await createSupabaseServerClient();
 
-  const [{ count: unreadCount }, classesRes, studentsRes, teachersRes] = await Promise.all([
-    supabase
-      .from("notifications")
-      .select("id", { count: "exact", head: true })
-      .eq("user_id", profileId)
-      .eq("is_read", false),
+  const [classesRes, studentsRes, teachersRes] = await Promise.all([
     supabase.from("classes").select("id, name, grade_label").order("created_at", { ascending: false }),
     supabase
       .from("class_students")
@@ -43,7 +38,6 @@ async function loadAdminClasses(profileId: string) {
   });
 
   return {
-    unreadCount: unreadCount ?? 0,
     classes: (classesRes.data ?? []) as unknown as ClassRowData[],
     classStudents,
     teacherClassIds: (teachersRes.data ?? []).map((t) => t.class_id as string)
@@ -66,7 +60,7 @@ export default async function AdminClassesPage() {
   });
 
   return (
-    <AdminLayout profile={profile} title="الصفوف" subtitle="إدارة الصفوف" unread={data.unreadCount}>
+    <AdminLayout profile={profile} title="الصفوف" subtitle="إدارة الصفوف">
       <AdminSection icon={GraduationCap} title="الصفوف" subtitle="بيانات الصفوف وأعداد الطلاب والمُدرّسين، ونقل الطلاب بين الصفوف.">
         <div className="mb-4 flex justify-end">
           <ClassForm />

@@ -19,12 +19,7 @@ async function loadAdminHome(profileId: string) {
 
   const supabase = await createSupabaseServerClient();
 
-  const [{ count: unreadCount }, classesRes] = await Promise.all([
-    supabase
-      .from("notifications")
-      .select("id", { count: "exact", head: true })
-      .eq("user_id", profileId)
-      .eq("is_read", false),
+  const [classesRes] = await Promise.all([
     supabase
       .from("classes")
       .select("id, name, grade_label")
@@ -32,7 +27,6 @@ async function loadAdminHome(profileId: string) {
   ]);
 
   return {
-    unreadCount: unreadCount ?? 0,
     classes: (classesRes.data ?? []).map((c) => ({ id: c.id as string, name: c.name as string }))
   };
 }
@@ -40,14 +34,13 @@ async function loadAdminHome(profileId: string) {
 export default async function AdminHomePage() {
   const profile = await requireRole(["admin"]);
 
-  const { unreadCount, classes } = await loadAdminHome(profile.id);
+  const { classes } = await loadAdminHome(profile.id);
 
   return (
     <AdminLayout
       profile={profile}
       title={profile.full_name?.trim().split(/\s+/).slice(0, 2).join(" ") ? `أهلًا ${profile.full_name.trim().split(/\s+/).slice(0, 2).join(" ")}` : "لوحة الإدارة"}
       subtitle="الرئيسية"
-      unread={unreadCount}
     >
       <div className="grid gap-5 lg:grid-cols-2">
         <AdminSection icon={UserPlus} title="حساب جديد" subtitle="أنشئ حسابًا واربطه بصفه مباشرة.">

@@ -20,12 +20,7 @@ async function loadAdminResetPassword(profileId: string) {
 
   const supabase = await createSupabaseServerClient();
 
-  const [{ count: unreadCount }, usersRes] = await Promise.all([
-    supabase
-      .from("notifications")
-      .select("id", { count: "exact", head: true })
-      .eq("user_id", profileId)
-      .eq("is_read", false),
+  const [usersRes] = await Promise.all([
     supabase
       .from("profiles")
       .select("id, full_name, code, role")
@@ -33,7 +28,6 @@ async function loadAdminResetPassword(profileId: string) {
   ]);
 
   return {
-    unreadCount: unreadCount ?? 0,
     users: (usersRes.data ?? []) as unknown as UserRow[]
   };
 }
@@ -46,7 +40,7 @@ export default async function AdminResetPasswordPage() {
   const studentOptions = userOptions.filter((u) => u.role === "student");
 
   return (
-    <AdminLayout profile={profile} title="إعادة تعيين كلمة المرور" subtitle="إدارة كلمات المرور" unread={data.unreadCount}>
+    <AdminLayout profile={profile} title="إعادة تعيين كلمة المرور" subtitle="إدارة كلمات المرور">
       <div className="mx-auto max-w-2xl">
         <AdminSection icon={RefreshCw} title="إعادة تعيين كلمة المرور" subtitle="سيُطلب من المستخدم تغييرها عند الدخول.">
           <ActionForm action={resetPasswordAction} className="grid gap-3.5" submitLabel="إعادة تعيين">
