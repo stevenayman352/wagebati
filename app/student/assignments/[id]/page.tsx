@@ -9,6 +9,7 @@ import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { formatDueDate } from "@/components/due-date-card";
 import { computeAssignmentStatus, type StudentStatusKey } from "@/lib/assignment-status";
+import { isAssignmentVisibleToStudent } from "@/lib/student-visibility";
 import { StatusPill } from "@/components/status-chip";
 import { Paperclip, ChevronDown, CalendarDays } from "lucide-react";
 
@@ -36,11 +37,11 @@ export default async function StudentAssignmentPage({ params }: { params: Promis
   const { id } = await params;
   const supabase = await createSupabaseServerClient();
 
-  const [conversationRes, submissionsRes, messagesRes] = await Promise.all([
+  const [conversationRes, submissionsRes, messagesRes, membershipsRes] = await Promise.all([
     supabase
       .from("conversations")
       .select(
-        "id, assignment_id, status, closed_by, closed_at, grades(grade), assignment:assignments!inner(title, instructions, due_at, max_grade, status)"
+        "id, assignment_id, status, closed_by, closed_at, grades(grade), assignment:assignments!inner(title, instructions, due_at, max_grade, status, class_id, published_at, created_at)"
       )
       .eq("id", id)
       .eq("student_id", profile.id)
@@ -55,7 +56,10 @@ export default async function StudentAssignmentPage({ params }: { params: Promis
       .select("id, sender_id, sender_role, kind, body, storage_path, file_name, mime_type, file_size, duration_seconds, deleted_from_storage_at, reply_to_message_id, created_at")
       .eq("conversation_id", id)
       .order("created_at")
-      .limit(1000)
+      .limit(1000),
+    // The student's current class memberships: `created_at` is when they joined
+    // a class, which decides whether homework published earlier is theirs.
+    supabase.from("class_students").select("class_id, created_at").eq("student_id", profile.id)
   ]);
   const conversation = conversationRes.data;
   if (!conversation) notFound();
@@ -67,7 +71,16 @@ export default async function StudentAssignmentPage({ params }: { params: Promis
     closed_by: string | null;
     closed_at: string | null;
     grades?: { grade: number } | null;
-    assignment?: { title: string; instructions: string | null; due_at: string | null; max_grade: number; status: string } | null;
+    assignment?: {
+      title: string;
+      instructions: string | null;
+      due_at: string | null;
+      max_grade: number;
+      status: string;
+      class_id: string;
+      published_at: string | null;
+      created_at: string;
+    } | null;
   };
 
   const assignmentId = conv.assignment_id;
@@ -114,6 +127,25 @@ export default async function StudentAssignmentPage({ params }: { params: Promis
   for (const t of mediaTargets) submissionUrls[t.key] = submissionUrlByPath.get(t.path) ?? null;
 
   const grade = conv.grades?.grade ?? null;
+
+  // Same rule as the student dashboard: homework that had already ended before
+  // the student joined the class is the teacher's history, not their homework.
+  // Without this a direct link (notification, old message) still opened it.
+  const joinedByClass: Record<string, string> = {};
+  for (const e of (membershipsRes.data ?? []) as { class_id: string; created_at: string }[]) {
+    joinedByClass[e.class_id] = e.created_at;
+  }
+  const visible = isAssignmentVisibleToStudent({
+    assignmentStatus: conv.assignment?.status ?? "",
+    dueAt: conv.assignment?.due_at ?? null,
+    publishedAt: conv.assignment?.published_at ?? null,
+    createdAt: conv.assignment?.created_at ?? "",
+    joinedAt: joinedByClass[conv.assignment?.class_id ?? ""] ?? null,
+    hasActivity:
+      grade !== null || submissions.length > 0 || threadMessages.some((m) => m.sender_role === "student")
+  });
+  if (!visible) notFound();
+
   // Server component evaluated once per request; the timestamp is fresh each render.
   // eslint-disable-next-line react-hooks/purity
   const nowMs = Date.now();
