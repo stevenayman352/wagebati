@@ -11,8 +11,9 @@
  * was shown months of old homework as "لم يسلم بعد".
  *
  * Exceptions, both in the student's favour:
- *   - the homework is still open (no deadline yet, or the deadline has not
- *     passed), so they can legitimately do it;
+ *   - the homework had not ended yet when they joined (or has no deadline at
+ *     all), so they had a chance to do it — the enrollment trigger uses the
+ *     same test, so what it backfills is exactly what the student sees;
  *   - the student already did something on it (submission, grade or message).
  *     Real work is never hidden.
  */
@@ -29,7 +30,6 @@ export type StudentAssignmentVisibilityInput = {
   joinedAt: string | null;
   /** The student submitted, was graded, or wrote in this conversation. */
   hasActivity: boolean;
-  nowMs: number;
 };
 
 export function isAssignmentVisibleToStudent(input: StudentAssignmentVisibilityInput): boolean {
@@ -38,10 +38,14 @@ export function isAssignmentVisibleToStudent(input: StudentAssignmentVisibilityI
   if (input.assignmentStatus !== "published") return false;
   if (input.hasActivity) return true;
 
-  const dueMs = input.dueAt ? Date.parse(input.dueAt) : null;
-  const stillOpen = dueMs === null || dueMs >= input.nowMs;
-  if (stillOpen) return true;
+  const joinedMs = Date.parse(input.joinedAt);
 
+  // No deadline, or it was still open when the student joined the class: it
+  // was theirs to do, and it stays visible after the deadline passes.
+  if (input.dueAt === null) return true;
+  if (Date.parse(input.dueAt) >= joinedMs) return true;
+
+  // Published after they joined: theirs from the start.
   const publishedMs = Date.parse(input.publishedAt ?? input.createdAt);
-  return publishedMs >= Date.parse(input.joinedAt);
+  return publishedMs >= joinedMs;
 }

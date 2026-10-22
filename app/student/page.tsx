@@ -154,8 +154,7 @@ export default async function StudentPage({
       hasActivity:
         (grade !== undefined && grade !== null) ||
         (r.submissions?.[0]?.count ?? 0) > 0 ||
-        chatActive.has(r.id),
-      nowMs
+        chatActive.has(r.id)
     });
   });
 
