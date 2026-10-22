@@ -13,7 +13,7 @@ import {
   type StudentHomeworkConversation
 } from "@/lib/homework-students";
 import { type TeacherStatusKey } from "@/lib/assignment-status";
-import { fetchAll } from "@/lib/supabase/fetch-all";
+import { fetchAll, fetchAllInChunks } from "@/lib/supabase/fetch-all";
 import {
   TeacherStatistics,
   type HomeworkStat
@@ -139,13 +139,30 @@ async function loadTeacherStatistics(profileId: string, role: string) {
 
   const conversationIds = conversations.map((c) => c.id);
   // All three depend only on the conversation ids, so they share one round trip.
-  const [subsRes, gradesRes, chatActive] = await Promise.all([
+  // The ids are chunked: their list is part of the request URL and a few
+  // thousand UUIDs overflow it (PostgREST answers 400 Bad Request), while the
+  // rows themselves are paged past the per-request max-rows cap.
+  const [submittedIds, gradedIds, chatActive] = await Promise.all([
     conversationIds.length
-      ? supabase.from("submissions").select("conversation_id").in("conversation_id", conversationIds)
-      : Promise.resolve({ data: [] as { conversation_id: string }[] }),
+      ? fetchAllInChunks<{ conversation_id: string }>(conversationIds, (chunk, range) =>
+          supabase
+            .from("submissions")
+            .select("conversation_id")
+            .in("conversation_id", chunk)
+            .order("id")
+            .range(range.from, range.to)
+        )
+      : Promise.resolve([] as { conversation_id: string }[]),
     conversationIds.length
-      ? supabase.from("grades").select("conversation_id").in("conversation_id", conversationIds)
-      : Promise.resolve({ data: [] as { conversation_id: string }[] }),
+      ? fetchAllInChunks<{ conversation_id: string }>(conversationIds, (chunk, range) =>
+          supabase
+            .from("grades")
+            .select("conversation_id")
+            .in("conversation_id", chunk)
+            .order("id")
+            .range(range.from, range.to)
+        )
+      : Promise.resolve([] as { conversation_id: string }[]),
     fetchStudentChatActivity(supabase, conversationIds)
   ]);
 
@@ -155,8 +172,8 @@ async function loadTeacherStatistics(profileId: string, role: string) {
     teacherByClass,
     enrolledByClass,
     profiles,
-    submittedIds: (subsRes.data ?? []).map((s) => s.conversation_id as string),
-    gradedIds: (gradesRes.data ?? []).map((g) => g.conversation_id as string),
+    submittedIds: submittedIds.map((s) => s.conversation_id),
+    gradedIds: gradedIds.map((g) => g.conversation_id),
     chatActivityIds: [...chatActive]
   };
 }

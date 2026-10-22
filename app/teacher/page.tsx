@@ -23,7 +23,7 @@ import {
 } from "@/lib/homework-students";
 import { STATUS_LABEL, type TeacherStatusKey } from "@/lib/assignment-status";
 import { cn } from "@/lib/utils";
-import { fetchAll } from "@/lib/supabase/fetch-all";
+import { fetchAll, fetchAllInChunks } from "@/lib/supabase/fetch-all";
 import { formatAppDate } from "@/lib/dates";
 import { CheckCircle2, Plus, Users, FileText, Paperclip, Mail, Hash, ShieldCheck, ClipboardCheck, Clock3, XCircle, BarChart3 } from "lucide-react";
 
@@ -107,18 +107,29 @@ async function loadTeacherDashboard(profileId: string, role: string) {
     })
     .map((c) => c.id);
 
-  const [classesRes, assignmentsRes, subsRes, gradesRes, chatActive] = await Promise.all([
+  const [classesRes, assignmentsRes, submittedIds, gradedIds, chatActive] = await Promise.all([
     classesQuery,
     assignmentsQuery,
     conversationIds.length
-      ? supabase
-          .from("submissions")
-          .select("conversation_id")
-          .in("conversation_id", conversationIds)
-      : Promise.resolve({ data: [] }),
+      ? fetchAllInChunks<{ conversation_id: string }>(conversationIds, (chunk, range) =>
+          supabase
+            .from("submissions")
+            .select("conversation_id")
+            .in("conversation_id", chunk)
+            .order("id")
+            .range(range.from, range.to)
+        )
+      : Promise.resolve([] as { conversation_id: string }[]),
     conversationIds.length
-      ? supabase.from("grades").select("conversation_id").in("conversation_id", conversationIds)
-      : Promise.resolve({ data: [] }),
+      ? fetchAllInChunks<{ conversation_id: string }>(conversationIds, (chunk, range) =>
+          supabase
+            .from("grades")
+            .select("conversation_id")
+            .in("conversation_id", chunk)
+            .order("id")
+            .range(range.from, range.to)
+        )
+      : Promise.resolve([] as { conversation_id: string }[]),
     fetchStudentChatActivity(supabase, conversationIds)
   ]);
 
@@ -129,8 +140,8 @@ async function loadTeacherDashboard(profileId: string, role: string) {
     conversations: convRows,
     assignments: assignmentsRes.data ?? [],
     enrollments: enrollRes.data ?? [],
-    submittedIds: (subsRes.data ?? []).map((s) => s.conversation_id as string),
-    gradedIds: (gradesRes.data ?? []).map((g) => g.conversation_id as string),
+    submittedIds: submittedIds.map((s) => s.conversation_id),
+    gradedIds: gradedIds.map((g) => g.conversation_id),
     chatActivityIds: [...chatActive]
   };
 }

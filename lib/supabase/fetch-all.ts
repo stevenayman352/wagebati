@@ -33,3 +33,35 @@ export async function fetchAll<T>(
     if (page.length < pageSize) return rows;
   }
 }
+
+/**
+ * Max ids per `in()` filter. PostgREST puts the whole filter in the request
+ * URL, so an id list that is large enough gets rejected by the gateway before
+ * the query runs: 1086 conversation UUIDs (~40 KB) came back as
+ * `400 Bad Request`, while 300 (~11 KB) worked. 100 keeps every chunk well
+ * under any proxy's request-line limit.
+ */
+export const ID_CHUNK_SIZE = 100;
+
+export function chunkIds<T>(ids: readonly T[], size = ID_CHUNK_SIZE): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < ids.length; i += size) chunks.push(ids.slice(i, i + size));
+  return chunks;
+}
+
+/**
+ * `fetchAll` for a query filtered by an arbitrary number of ids: one paged
+ * request per id chunk, all chunks in flight together. Use this whenever the
+ * id list comes from another query and can reach the thousands — both the
+ * filter (URL length) and the row window (max-rows) have to stay small.
+ */
+export async function fetchAllInChunks<T>(
+  ids: readonly string[],
+  build: (chunk: string[], range: { from: number; to: number }) => PromiseLike<unknown>,
+  pageSize = 500
+): Promise<T[]> {
+  const pages = await Promise.all(
+    chunkIds(ids).map((chunk) => fetchAll<T>((range) => build(chunk, range), pageSize))
+  );
+  return pages.flat();
+}
