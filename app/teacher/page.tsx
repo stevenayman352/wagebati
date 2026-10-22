@@ -17,8 +17,12 @@ import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { fetchStudentChatActivity } from "@/lib/assignment-activity";
 import {
+  cardStatusCounts,
   homeworkStudentStatuses,
+  mergeStudentCardStatuses,
   statusTotals,
+  type HomeworkStudentEntry,
+  type StudentCardStatus,
   type StudentHomeworkConversation
 } from "@/lib/homework-students";
 import { STATUS_LABEL, type TeacherStatusKey } from "@/lib/assignment-status";
@@ -254,7 +258,7 @@ export default async function TeacherPage({
   // homework status per active homework, transferred students stay attached
   // to the class they left (skipped), and students who never opened the
   // homework surface as not_submitted instead of vanishing.
-  const statusCounts = new Map<TeacherStatusKey, number>();
+  const entriesByHomework: HomeworkStudentEntry[][] = [];
   const needsByAssignment = new Map<string, number>();
   for (const a of activeRows) {
     const entries = homeworkStudentStatuses({
@@ -273,20 +277,24 @@ export default async function TeacherPage({
       dueAt: a.due_at,
       nowMs
     });
+    entriesByHomework.push([...entries.values()]);
     const totals = statusTotals(entries);
-    for (const [key, count] of totals) {
-      statusCounts.set(key, (statusCounts.get(key) ?? 0) + count);
-    }
     const needs =
       (totals.get("under_review") ?? 0) + (totals.get("awaiting_grading") ?? 0);
     if (needs > 0) needsByAssignment.set(a.id, needs);
   }
 
+  // The five cards count STUDENTS, not (homework, student) pairs: a student in
+  // three active homeworks used to be added three times. Merging keeps the
+  // most urgent status per student, and classes without an active homework
+  // never enter `entriesByHomework`, so their students are not counted.
+  const statusCounts = cardStatusCounts(mergeStudentCardStatuses(entriesByHomework));
+
   const studentCounts = new Map<string, number>();
   for (const e of data.enrollments as { class_id: string }[]) {
     studentCounts.set(e.class_id, (studentCounts.get(e.class_id) ?? 0) + 1);
   }
-  const MAIN_STATUSES: TeacherStatusKey[] = [
+  const MAIN_STATUSES: StudentCardStatus[] = [
     "under_review",
     "not_submitted",
     "awaiting_grading",
@@ -331,6 +339,9 @@ export default async function TeacherPage({
             <div>
               <h2 className="text-[var(--text-h2)] font-bold">إحصائيات الواجبات</h2>
               <p className="text-xs text-muted-foreground">للواجبات النشطة فقط — مثل القائمة أعلاه</p>
+              <p className="text-xs text-muted-foreground">
+                كل طالب يُحتسب مرة واحدة، والصفوف التي لا تحتوي واجبًا نشطًا لا تُحتسب
+              </p>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-2.5 md:grid-cols-3">

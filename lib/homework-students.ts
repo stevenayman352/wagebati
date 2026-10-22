@@ -124,3 +124,72 @@ export function studentHasActivity(entry: HomeworkStudentEntry): boolean {
 export function studentNeedsFollowUp(entry: HomeworkStudentEntry): boolean {
   return entry.statusKey === "under_review" || entry.statusKey === "awaiting_grading";
 }
+
+/**
+ * The five cards on the teacher dashboard. `overdue_not_submitted` is not one
+ * of them: a student who missed a deadline is still "لم يسلم", so it folds
+ * into `not_submitted` instead of disappearing from the cards.
+ */
+export type StudentCardStatus =
+  | "under_review"
+  | "awaiting_grading"
+  | "not_submitted"
+  | "graded"
+  | "completed";
+
+export const STUDENT_CARD_STATUSES: StudentCardStatus[] = [
+  "under_review",
+  "awaiting_grading",
+  "not_submitted",
+  "graded",
+  "completed"
+];
+
+/** Most urgent first: a student is shown on the card that needs action soonest. */
+const CARD_PRIORITY: Record<StudentCardStatus, number> = {
+  under_review: 0,
+  awaiting_grading: 1,
+  not_submitted: 2,
+  graded: 3,
+  completed: 4
+};
+
+export function cardStatusOf(statusKey: TeacherStatusKey): StudentCardStatus {
+  return statusKey === "overdue_not_submitted" ? "not_submitted" : statusKey;
+}
+
+/**
+ * The dashboard counts STUDENTS, not (homework, student) pairs: a student
+ * enrolled in three active homeworks used to be added three times across the
+ * cards. Fold every active homework's entries into one status per student,
+ * keeping the most urgent, so the five cards always add up to the number of
+ * distinct students in classes that have an active homework. Students of
+ * classes with no active homework never appear in the input at all.
+ */
+export function mergeStudentCardStatuses(
+  perHomework: Iterable<Iterable<HomeworkStudentEntry>>
+): Map<string, StudentCardStatus> {
+  const merged = new Map<string, StudentCardStatus>();
+  for (const entries of perHomework) {
+    for (const entry of entries) {
+      const card = cardStatusOf(entry.statusKey);
+      const current = merged.get(entry.studentId);
+      if (current === undefined || CARD_PRIORITY[card] < CARD_PRIORITY[current]) {
+        merged.set(entry.studentId, card);
+      }
+    }
+  }
+  return merged;
+}
+
+/** Tallies the merged statuses into the five dashboard cards. */
+export function cardStatusCounts(
+  students: ReadonlyMap<string, StudentCardStatus>
+): Map<StudentCardStatus, number> {
+  const counts = new Map<StudentCardStatus, number>();
+  for (const key of STUDENT_CARD_STATUSES) counts.set(key, 0);
+  for (const status of students.values()) {
+    counts.set(status, (counts.get(status) ?? 0) + 1);
+  }
+  return counts;
+}
