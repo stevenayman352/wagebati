@@ -10,10 +10,11 @@ import { BackButton } from "@/components/back-button";
 import { FileText, GraduationCap, ChevronUp } from "lucide-react";
 import { fetchStudentChatActivity } from "@/lib/assignment-activity";
 import {
-  computeAssignmentStatus,
-  conversationHasActivity,
-  type TeacherStatusKey
-} from "@/lib/assignment-status";
+  homeworkStudentStatuses,
+  studentHasActivity
+} from "@/lib/homework-students";
+import { type TeacherStatusKey } from "@/lib/assignment-status";
+import { fetchAll } from "@/lib/supabase/fetch-all";
 import { StatusPill, statusVisual } from "@/components/status-chip";
 import { ConfirmCloseAssignment } from "@/components/confirm-close-assignment";
 import { ReopenAssignmentDialog } from "@/components/reopen-assignment-dialog";
@@ -38,6 +39,7 @@ const GROUPS: { label: string; dot: string; keys: TeacherStatusKey[] }[] = [
 
 type ConversationRow = {
   id: string;
+  student_id: string;
   status: string;
   closed_by: string | null;
   last_message_at: string | null;
@@ -62,26 +64,40 @@ async function loadTeacherAssignment(profileId: string, assignmentId: string) {
 
   const supabase = await createSupabaseServerClient();
 
-  const [assignmentRes, conversationsRes] = await Promise.all([
-    supabase
-      .from("assignments")
-      .select("id, title, max_grade, due_at, status, classes!inner(name, id)")
-      .eq("id", assignmentId)
-      .single(),
-    supabase
-      .from("conversations")
-      .select(
-        "id, status, closed_by, last_message_at, student:profiles!conversations_student_id_fkey(full_name, code), grades(grade), submissions(count)"
-      )
-      .eq("assignment_id", assignmentId)
-      .order("updated_at", { ascending: false })
-  ]);
-  const assignmentData = assignmentRes.data;
+  const { data: assignmentData } = await supabase
+    .from("assignments")
+    .select("id, title, max_grade, due_at, status, classes!inner(name, id)")
+    .eq("id", assignmentId)
+    .single();
   if (!assignmentData) return null;
   const assignment = assignmentData as unknown as AssignmentData;
 
-  const rows = (conversationsRes.data ?? []) as unknown as ConversationRow[];
-  const conversationIds = rows.map((r) => r.id);
+  const classId = assignment.classes?.id;
+
+  // Enrollment drives the student list; conversations (paged past the
+  // PostgREST max-rows cap) only carry the status of students who opened the
+  // homework. Both runs start once the class id is known.
+  const [convRows, enrollRes] = await Promise.all([
+    fetchAll<ConversationRow>((range) =>
+      supabase
+        .from("conversations")
+        .select(
+          "id, student_id, status, closed_by, last_message_at, student:profiles!conversations_student_id_fkey(full_name, code), grades(grade), submissions(count)"
+        )
+        .eq("assignment_id", assignmentId)
+        .order("updated_at", { ascending: false })
+        .order("id", { ascending: false })
+        .range(range.from, range.to)
+    ),
+    classId
+      ? supabase
+          .from("class_students")
+          .select("student_id, student:profiles!class_students_student_id_fkey(full_name, code)")
+          .eq("class_id", classId)
+      : Promise.resolve({ data: [] })
+  ]);
+
+  const conversationIds = convRows.map((r) => r.id);
 
   const [chatActive, subsRes] = await Promise.all([
     fetchStudentChatActivity(supabase, conversationIds),
@@ -92,7 +108,11 @@ async function loadTeacherAssignment(profileId: string, assignmentId: string) {
 
   return {
     assignment,
-    rows,
+    rows: convRows,
+    enrollments: (enrollRes.data ?? []) as unknown as {
+      student_id: string;
+      student: { full_name: string; code: number } | null;
+    }[],
     submittedConversationIds: (subsRes.data ?? []).map((s) => s.conversation_id as string),
     chatActivityIds: [...chatActive]
   };
@@ -129,7 +149,7 @@ export default async function TeacherAssignmentPage({ params }: { params: Promis
     await taughtClassIdsPromise?.catch(() => []);
     notFound();
   }
-  const { assignment, rows, submittedConversationIds, chatActivityIds } = loaded;
+  const { assignment, rows, enrollments, submittedConversationIds, chatActivityIds } = loaded;
 
   if (!isAdmin) {
     const classId = assignment.classes?.id;
@@ -144,25 +164,67 @@ export default async function TeacherAssignmentPage({ params }: { params: Promis
   const nowMs = Date.now();
   const maxGrade = assignment.max_grade ?? 20;
 
-  const withStatus = rows.map((c) => {
-    const grade = c.grades?.grade;
-    const statusKey = computeAssignmentStatus({
-      role: "teacher",
-      status: c.status,
-      closedBy: c.closed_by,
-      hasGrade: grade !== undefined && grade !== null,
-      hasSubmission: hasSubmission.has(c.id) || (c.submissions?.[0]?.count ?? 0) > 0,
-      hasStudentMessage: chatActive.has(c.id),
-      dueAt: assignment.due_at,
-      nowMs
-    }) as TeacherStatusKey;
-    return { ...c, grade: grade ?? null, statusKey };
+  // Student-based list: enrollment is the denominator, conversations carry
+  // the status. Students who never opened the homework get a row linking to
+  // their profile page instead of a conversation.
+  const enrolled = new Set(enrollments.map((e) => e.student_id));
+  const profileByStudent = new Map<string, { full_name: string; code: number }>();
+  for (const e of enrollments) {
+    if (e.student) profileByStudent.set(e.student_id, e.student);
+  }
+  for (const r of rows) {
+    if (r.student && !profileByStudent.has(r.student_id)) {
+      profileByStudent.set(r.student_id, r.student);
+    }
+  }
+
+  const entries = homeworkStudentStatuses({
+    enrolled,
+    conversations: rows.map((r) => ({
+      id: r.id,
+      student_id: r.student_id,
+      status: r.status,
+      closed_by: r.closed_by,
+      hasGrade: r.grades?.grade !== undefined && r.grades?.grade !== null,
+      hasSubmission: hasSubmission.has(r.id) || (r.submissions?.[0]?.count ?? 0) > 0,
+      hasStudentMessage: chatActive.has(r.id)
+    })),
+    dueAt: assignment.due_at,
+    nowMs
   });
 
-  const submitted = withStatus.filter((c) => conversationHasActivity({ hasGrade: c.grade !== null, hasSubmission: hasSubmission.has(c.id) || (c.submissions?.[0]?.count ?? 0) > 0, hasStudentMessage: chatActive.has(c.id) }));
+  const rowById = new Map(rows.map((r) => [r.id, r]));
+  type StudentItem = {
+    key: string;
+    href: string;
+    name: string;
+    code: string | number;
+    grade: number | null;
+    statusKey: TeacherStatusKey;
+  };
+  const withStatus: StudentItem[] = [...entries.values()].map((entry) => {
+    const row = entry.conversationId ? rowById.get(entry.conversationId) : undefined;
+    const profile = profileByStudent.get(entry.studentId);
+    return {
+      key: entry.conversationId ?? `student:${entry.studentId}`,
+      href: entry.conversationId
+        ? `/teacher/conversations/${entry.conversationId}`
+        : `/teacher/classes/${assignment.classes?.id}/students/${entry.studentId}`,
+      name: row?.student?.full_name ?? profile?.full_name ?? "طالب",
+      code: row?.student?.code ?? profile?.code ?? "",
+      grade: row?.grades?.grade ?? null,
+      statusKey: entry.statusKey
+    };
+  });
+  const submittedCount = [...entries.values()].filter(studentHasActivity).length;
 
-  const activeCount = withStatus.filter((c) => c.status === "active").length;
-  const completedCount = withStatus.filter((c) => c.statusKey === "completed").length;
+  // Confirm-close / reopen decisions stay conversation-based: they are about
+  // closing or reopening the existing chat sessions, not the student list.
+  const activeCount = rows.filter((r) => r.status === "active").length;
+  const conversationEntries = [...entries.values()].filter((e) => e.conversationId !== null);
+  const conversationCompletedCount = conversationEntries.filter(
+    (e) => e.statusKey === "completed"
+  ).length;
 
   return (
     <>
@@ -175,7 +237,10 @@ export default async function TeacherAssignmentPage({ params }: { params: Promis
             ) : (
               <ReopenAssignmentDialog
                 assignmentId={assignment.id}
-                disabled={withStatus.length > 0 && completedCount === withStatus.length}
+                disabled={
+                  conversationEntries.length > 0 &&
+                  conversationCompletedCount === conversationEntries.length
+                }
               />
             )
           ) : null}
@@ -207,7 +272,7 @@ export default async function TeacherAssignmentPage({ params }: { params: Promis
           <GraduationCap className="size-4 text-primary" />
           الطلاب
           <span className="text-sm font-normal text-muted-foreground">
-            ({withStatus.length}) · سلموا {submitted.length}
+            ({withStatus.length}) · سلموا {submittedCount}
           </span>
         </h2>
 
@@ -226,16 +291,16 @@ export default async function TeacherAssignmentPage({ params }: { params: Promis
                   const { Icon, cls } = statusVisual(c.statusKey);
                   return (
                     <Link
-                      key={c.id}
-                      href={`/teacher/conversations/${c.id}`}
+                      key={c.key}
+                      href={c.href}
                       className="flex items-center gap-3.5 rounded-[var(--radius-lg)] border border-border/70 bg-card p-4 shadow-card transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-raise active:translate-y-0"
                     >
                       <span className={`flex size-10 shrink-0 items-center justify-center rounded-xl ${cls}`}>
                         <Icon className="size-4" />
                       </span>
                       <div className="min-w-0 flex-1">
-                        <div className="truncate text-base font-bold">{c.student?.full_name ?? "طالب"}</div>
-                        <div className="mt-0.5 text-xs text-muted-foreground">الكود: {c.student?.code ?? ""}</div>
+                        <div className="truncate text-base font-bold">{c.name}</div>
+                        <div className="mt-0.5 text-xs text-muted-foreground">الكود: {c.code ?? ""}</div>
                       </div>
                       <div className="flex shrink-0 flex-col items-end gap-1">
                         {c.grade !== null ? (

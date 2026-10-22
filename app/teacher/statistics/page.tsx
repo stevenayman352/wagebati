@@ -8,10 +8,12 @@ import { BarChart3 } from "lucide-react";
 import { BackButton } from "@/components/back-button";
 import { fetchStudentChatActivity } from "@/lib/assignment-activity";
 import {
-  computeAssignmentStatus,
-  TEACHER_STATUSES,
-  type TeacherStatusKey
-} from "@/lib/assignment-status";
+  homeworkStudentStatuses,
+  statusTotals,
+  type StudentHomeworkConversation
+} from "@/lib/homework-students";
+import { type TeacherStatusKey } from "@/lib/assignment-status";
+import { fetchAll } from "@/lib/supabase/fetch-all";
 import {
   TeacherStatistics,
   type HomeworkStat
@@ -29,6 +31,7 @@ type AssignmentRow = {
 type ConversationRow = {
   id: string;
   assignment_id: string;
+  student_id: string;
   status: string;
   closed_by: string | null;
   student?: { full_name: string; code: string } | null;
@@ -73,7 +76,9 @@ async function loadTeacherStatistics(profileId: string, role: string) {
   // Both reads are independent of each other — one is keyed by the assignments'
   // class ids, the other by their own ids — so they run concurrently rather
   // than as two sequential round trips.
-  const [teacherRowsRes, convRowsRes] = await Promise.all([
+  // Conversations are paged: their table outgrew the PostgREST per-request
+  // max-rows cap (this project answers 200 OK while dropping rows past 1000).
+  const [teacherRowsRes, convRowsRes, enrollRes] = await Promise.all([
     classIds.length
       ? admin
           .from("class_teachers")
@@ -81,11 +86,23 @@ async function loadTeacherStatistics(profileId: string, role: string) {
           .in("class_id", classIds)
       : Promise.resolve({ data: [] as { class_id: string | null; teacher: { full_name: string } | null }[] }),
     assignmentIds.length
+      ? fetchAll<ConversationRow>((range) =>
+          supabase
+            .from("conversations")
+            .select(
+              "id, assignment_id, student_id, status, closed_by, student:profiles!conversations_student_id_fkey(full_name, code)"
+            )
+            .in("assignment_id", assignmentIds)
+            .order("id")
+            .range(range.from, range.to)
+        )
+      : Promise.resolve([] as ConversationRow[]),
+    classIds.length
       ? supabase
-          .from("conversations")
-          .select("id, assignment_id, status, closed_by, student:profiles!conversations_student_id_fkey(full_name, code)")
-          .in("assignment_id", assignmentIds)
-      : Promise.resolve({ data: [] as unknown[] })
+          .from("class_students")
+          .select("class_id, student_id, student:profiles!class_students_student_id_fkey(full_name, code)")
+          .in("class_id", classIds)
+      : Promise.resolve({ data: [] })
   ]);
 
   const teacherByClass = new Map<string, string[]>();
@@ -97,7 +114,28 @@ async function loadTeacherStatistics(profileId: string, role: string) {
     teacherByClass.set(row.class_id, list);
   }
 
-  const conversations = (convRowsRes.data ?? []) as unknown as ConversationRow[];
+  // Current enrollment per class (the homework's real students) and a
+  // student → profile map so students without a conversation row still have a
+  // name and code on the statistics page.
+  const enrolledByClass: Record<string, string[]> = {};
+  const profiles: Record<string, { name: string; code: string }> = {};
+  for (const row of (enrollRes.data ?? []) as unknown as {
+    class_id: string;
+    student_id: string;
+    student: { full_name: string; code: string } | null;
+  }[]) {
+    (enrolledByClass[row.class_id] ??= []).push(row.student_id);
+    if (row.student) {
+      profiles[row.student_id] = { name: row.student.full_name ?? "", code: row.student.code ?? "" };
+    }
+  }
+
+  const conversations = convRowsRes;
+  for (const c of conversations) {
+    if (c.student && !profiles[c.student_id]) {
+      profiles[c.student_id] = { name: c.student.full_name ?? "", code: c.student.code ?? "" };
+    }
+  }
 
   const conversationIds = conversations.map((c) => c.id);
   // All three depend only on the conversation ids, so they share one round trip.
@@ -115,6 +153,8 @@ async function loadTeacherStatistics(profileId: string, role: string) {
     assignments,
     conversations,
     teacherByClass,
+    enrolledByClass,
+    profiles,
     submittedIds: (subsRes.data ?? []).map((s) => s.conversation_id as string),
     gradedIds: (gradesRes.data ?? []).map((g) => g.conversation_id as string),
     chatActivityIds: [...chatActive]
@@ -132,6 +172,16 @@ export default async function TeacherStatisticsPage() {
   const gradedIds = new Set(data.gradedIds);
   const chatActive = new Set(data.chatActivityIds);
 
+  const enrolledByClass = new Map<string, ReadonlySet<string>>();
+  for (const [classId, ids] of Object.entries(data.enrolledByClass)) {
+    enrolledByClass.set(classId, new Set(ids));
+  }
+  const profileByStudent = new Map(Object.entries(data.profiles)) as Map<
+    string,
+    { name: string; code: string }
+  >;
+  const NO_ENROLLMENT: ReadonlySet<string> = new Set();
+
   // eslint-disable-next-line react-hooks/purity
   const nowMs = Date.now();
 
@@ -140,9 +190,26 @@ export default async function TeacherStatisticsPage() {
     const ended =
       (a.due_at !== null && new Date(a.due_at).getTime() < nowMs) ||
       (convs.length > 0 && !convs.some((c) => c.status === "active"));
-    const counts = new Map<TeacherStatusKey, number>();
-    for (const key of TEACHER_STATUSES) counts.set(key, 0);
-    const students: Record<TeacherStatusKey, { name: string; code: string; conversationId: string }[]> = {
+
+    const entries = homeworkStudentStatuses({
+      enrolled: enrolledByClass.get(a.class_id ?? "") ?? NO_ENROLLMENT,
+      conversations: convs.map(
+        (c): StudentHomeworkConversation => ({
+          id: c.id,
+          student_id: c.student_id,
+          status: c.status,
+          closed_by: c.closed_by,
+          hasGrade: gradedIds.has(c.id),
+          hasSubmission: submittedIds.has(c.id),
+          hasStudentMessage: chatActive.has(c.id)
+        })
+      ),
+      dueAt: a.due_at,
+      nowMs
+    });
+    const counts = statusTotals(entries);
+
+    const students: Record<TeacherStatusKey, { id: string; name: string; code: string; conversationId: string | null; href: string }[]> = {
       not_submitted: [],
       under_review: [],
       awaiting_grading: [],
@@ -150,23 +217,16 @@ export default async function TeacherStatisticsPage() {
       graded: [],
       completed: []
     };
-
-    for (const c of convs) {
-      const key = computeAssignmentStatus({
-        role: "teacher",
-        status: c.status,
-        closedBy: c.closed_by,
-        hasGrade: gradedIds.has(c.id),
-        hasSubmission: submittedIds.has(c.id),
-        hasStudentMessage: chatActive.has(c.id),
-        dueAt: a.due_at,
-        nowMs
-      }) as TeacherStatusKey;
-      counts.set(key, (counts.get(key) ?? 0) + 1);
-      students[key].push({
-        name: c.student?.full_name ?? "طالب",
-        code: c.student?.code ?? "",
-        conversationId: c.id
+    for (const entry of entries.values()) {
+      const profile = profileByStudent.get(entry.studentId);
+      students[entry.statusKey].push({
+        id: entry.studentId,
+        name: profile?.name ?? "طالب",
+        code: profile?.code ?? "",
+        conversationId: entry.conversationId,
+        href: entry.conversationId
+          ? `/teacher/conversations/${entry.conversationId}`
+          : `/teacher/classes/${a.class_id}/students/${entry.studentId}`
       });
     }
 

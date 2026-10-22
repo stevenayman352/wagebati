@@ -8,7 +8,13 @@ import { Badge } from "@/components/ui/badge";
 import { BackButton } from "@/components/back-button";
 import { ClipboardList, FileText, ChevronUp } from "lucide-react";
 import { fetchStudentChatActivity } from "@/lib/assignment-activity";
-import { computeAssignmentStatus, isTeacherStatusKey, type TeacherStatusKey } from "@/lib/assignment-status";
+import {
+  homeworkStudentStatuses,
+  statusTotals,
+  studentHasActivity
+} from "@/lib/homework-students";
+import { isTeacherStatusKey, type TeacherStatusKey } from "@/lib/assignment-status";
+import { fetchAll } from "@/lib/supabase/fetch-all";
 import { formatAppDate } from "@/lib/dates";
 import { ActiveHomeworksView, type ActiveHomeworkItem } from "@/components/active-homeworks-view";
 
@@ -18,12 +24,14 @@ type AssignmentRow = {
   due_at: string | null;
   max_grade: number;
   status: string;
+  class_id: string;
   classes?: { name: string } | null;
-  conversations?: ConversationElement[];
 };
 
-type ConversationElement = {
+type ConversationRow = {
   id: string;
+  assignment_id: string;
+  student_id: string;
   status: string;
   closed_by: string | null;
   grades?: { grade: number } | null;
@@ -45,9 +53,7 @@ async function loadTeacherAssignments(profileId: string, role: string) {
 
   let assignmentQuery = supabase
     .from("assignments")
-    .select(
-      "id, title, due_at, max_grade, status, classes!inner(name), conversations(id, status, closed_by, grades(grade), submissions(count))"
-    )
+    .select("id, title, due_at, max_grade, status, class_id, classes!inner(name)")
     .order("created_at", { ascending: false });
   if (classIds)
     assignmentQuery = assignmentQuery.in("class_id", classIds.length ? classIds : ["00000000-0000-0000-0000-000000000000"]);
@@ -56,10 +62,37 @@ async function loadTeacherAssignments(profileId: string, role: string) {
 
   const rows = (raw ?? []) as unknown as AssignmentRow[];
 
-  const allConversationIds = rows.flatMap((a) => (a.conversations ?? []).map((c) => c.id));
+  // The embedded conversations(...) are gone from the assignment select:
+  // embedded resources ride inside one request, so they hit the same PostgREST
+  // max-rows cap that was silently truncating them. Fetch them paged, and add
+  // student_id + enrollment so the counts are per student, not per
+  // conversation.
+  const assignmentIds = rows.map((a) => a.id);
+  const conversations = assignmentIds.length
+    ? await fetchAll<ConversationRow>((range) =>
+        supabase
+          .from("conversations")
+          .select("id, assignment_id, student_id, status, closed_by, grades(grade), submissions(count)")
+          .in("assignment_id", assignmentIds)
+          .order("id")
+          .range(range.from, range.to)
+      )
+    : [];
+
+  const pageClassIds = [...new Set(rows.map((a) => a.class_id).filter(Boolean))] as string[];
+  const enrollRes = pageClassIds.length
+    ? await supabase.from("class_students").select("class_id, student_id").in("class_id", pageClassIds)
+    : { data: [] };
+
+  const allConversationIds = conversations.map((c) => c.id);
   const chatActive = await fetchStudentChatActivity(supabase, allConversationIds);
 
-  return { rows, chatActivityIds: [...chatActive] };
+  return {
+    rows,
+    conversations,
+    enrollments: (enrollRes.data ?? []) as unknown as { class_id: string; student_id: string }[],
+    chatActivityIds: [...chatActive]
+  };
 }
 
 export default async function TeacherAssignmentsPage({
@@ -70,54 +103,66 @@ export default async function TeacherAssignmentsPage({
   const profile = await requireRole(["teacher", "admin"]);
   const { status } = await searchParams;
 
-  const { rows, chatActivityIds } = await loadTeacherAssignments(profile.id, profile.role);
+  const { rows, conversations, enrollments, chatActivityIds } = await loadTeacherAssignments(profile.id, profile.role);
   const chatActive = new Set(chatActivityIds);
 
   // eslint-disable-next-line react-hooks/purity
   const nowMs = Date.now();
 
-  const hasActivity = (c: ConversationElement) => {
-    const subCount = Array.isArray(c.submissions) ? (c.submissions[0]?.count ?? 0) : 0;
-    const graded = c.grades?.grade !== undefined && c.grades?.grade !== null;
-    return graded || subCount > 0 || chatActive.has(c.id);
-  };
+  const enrolledByClass = new Map<string, ReadonlySet<string>>();
+  for (const e of enrollments) {
+    const set = new Set(enrolledByClass.get(e.class_id) ?? []);
+    set.add(e.student_id);
+    enrolledByClass.set(e.class_id, set);
+  }
+  const conversationsByAssignment = new Map<string, ConversationRow[]>();
+  for (const c of conversations) {
+    const list = conversationsByAssignment.get(c.assignment_id) ?? [];
+    list.push(c);
+    conversationsByAssignment.set(c.assignment_id, list);
+  }
+  // A draft was never published, so "لم يسلموا" makes no sense for it —
+  // drafts are measured against published homework only.
+  const enrolledFor = (a: AssignmentRow) =>
+    a.status === "published" ? (enrolledByClass.get(a.class_id) ?? new Set<string>()) : new Set<string>();
 
-  const statusKeyFor = (a: AssignmentRow, c: ConversationElement): TeacherStatusKey => {
-    const subCount = Array.isArray(c.submissions) ? (c.submissions[0]?.count ?? 0) : 0;
-    const graded = c.grades?.grade !== undefined && c.grades?.grade !== null;
-    return computeAssignmentStatus({
-      role: "teacher",
-      status: c.status,
-      closedBy: c.closed_by,
-      hasGrade: graded,
-      hasSubmission: subCount > 0 || chatActive.has(c.id),
-      hasStudentMessage: chatActive.has(c.id),
+  const studentEntries = (a: AssignmentRow) =>
+    homeworkStudentStatuses({
+      enrolled: enrolledFor(a),
+      conversations: (conversationsByAssignment.get(a.id) ?? []).map((c) => ({
+        id: c.id,
+        student_id: c.student_id,
+        status: c.status,
+        closed_by: c.closed_by,
+        hasGrade:
+          c.grades?.grade !== undefined && c.grades?.grade !== null,
+        hasSubmission:
+          (Array.isArray(c.submissions) ? (c.submissions[0]?.count ?? 0) : 0) > 0 ||
+          chatActive.has(c.id),
+        hasStudentMessage: chatActive.has(c.id)
+      })),
       dueAt: a.due_at ?? null,
       nowMs
-    }) as TeacherStatusKey;
-  };
+    });
 
   const activeItems: ActiveHomeworkItem[] = rows
     .filter(
       (a) =>
         a.status === "published" &&
         (a.due_at === null || new Date(a.due_at).getTime() >= nowMs) &&
-        (a.conversations ?? []).some((c) => c.status === "active")
+        (conversationsByAssignment.get(a.id) ?? []).some((c) => c.status === "active")
     )
     .map((a) => {
-      const convs = a.conversations ?? [];
+      const totals = statusTotals(studentEntries(a));
       const statusCounts: Partial<Record<TeacherStatusKey, number>> = {};
-      for (const c of convs) {
-        const key = statusKeyFor(a, c);
-        statusCounts[key] = (statusCounts[key] ?? 0) + 1;
-      }
+      for (const [key, count] of totals) statusCounts[key] = count;
       return {
         id: a.id,
         title: a.title,
         className: a.classes?.name ?? null,
         due_at: a.due_at,
         max_grade: a.max_grade,
-        total: convs.length,
+        total: studentEntries(a).size,
         statusCounts
       };
     });
@@ -156,15 +201,17 @@ export default async function TeacherAssignmentsPage({
         ) : (
         <div className="grid gap-2.5">
           {rows.map((a) => {
-            const convs = a.conversations ?? [];
-            const submittedCount = convs.filter(hasActivity).length;
-            const notSubmittedCount = convs.length - submittedCount;
+            const entries = studentEntries(a);
+            const submittedCount = [...entries.values()].filter(studentHasActivity).length;
+            const notSubmittedCount = entries.size - submittedCount;
             const isDraft = a.status === "draft";
-            const hasActiveConversation = convs.some((c) => c.status === "active");
+            const hasActiveConversation = (conversationsByAssignment.get(a.id) ?? []).some(
+              (c) => c.status === "active"
+            );
             const ended =
               !isDraft &&
               ((a.due_at !== null && new Date(a.due_at).getTime() < nowMs) ||
-                (convs.length > 0 && !hasActiveConversation));
+                ((conversationsByAssignment.get(a.id) ?? []).length > 0 && !hasActiveConversation));
             return (
               <Link
                 key={a.id}

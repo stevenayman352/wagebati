@@ -122,7 +122,7 @@ export function ActiveHomeworksView({
                     التسليم: {formatAppDate(a.due_at)}
                   </span>
                   <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">
-                    {activeCount(a)} {tab === "all" ? "محادثة" : STATUS_LABEL[tab as TeacherStatusKey]}
+                    {activeCount(a)} {tab === "all" ? "طالب" : STATUS_LABEL[tab as TeacherStatusKey]}
                   </span>
                 </div>
               </div>

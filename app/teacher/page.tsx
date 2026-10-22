@@ -17,11 +17,13 @@ import { requireRole } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { fetchStudentChatActivity } from "@/lib/assignment-activity";
 import {
-  computeAssignmentStatus,
-  STATUS_LABEL,
-  type TeacherStatusKey
-} from "@/lib/assignment-status";
+  homeworkStudentStatuses,
+  statusTotals,
+  type StudentHomeworkConversation
+} from "@/lib/homework-students";
+import { STATUS_LABEL, type TeacherStatusKey } from "@/lib/assignment-status";
 import { cn } from "@/lib/utils";
+import { fetchAll } from "@/lib/supabase/fetch-all";
 import { formatAppDate } from "@/lib/dates";
 import { CheckCircle2, Plus, Users, FileText, Paperclip, Mail, Hash, ShieldCheck, ClipboardCheck, Clock3, XCircle, BarChart3 } from "lucide-react";
 
@@ -34,8 +36,17 @@ type Row = {
   status: string;
   published_at: string | null;
   created_at: string;
+  class_id: string;
   classes?: { name?: string } | null;
   assignment_attachments?: { count: number }[] | null;
+};
+
+type DashboardConversation = {
+  id: string;
+  student_id: string;
+  status: string;
+  closed_by: string | null;
+  assignment?: { id: string; due_at: string | null; class_id: string } | null;
 };
 
 function formatDate(value: string | null) {
@@ -49,7 +60,7 @@ async function loadTeacherDashboard(profileId: string, role: string) {
 
   const supabase = await createSupabaseServerClient();
 
-  const [{ data: myClasses }, { count: unreadCount }, convRes, enrollRes] = await Promise.all([
+  const [{ data: myClasses }, { count: unreadCount }, enrollRes] = await Promise.all([
     supabase
       .from("class_teachers")
       .select("class_id")
@@ -59,9 +70,6 @@ async function loadTeacherDashboard(profileId: string, role: string) {
       .select("id", { count: "exact", head: true })
       .eq("user_id", profileId)
       .eq("is_read", false),
-    supabase
-      .from("conversations")
-      .select("id, status, closed_by, assignment:assignments!inner(id, due_at, class_id)"),
     supabase.from("class_students").select("class_id, student_id")
   ]);
 
@@ -75,18 +83,29 @@ async function loadTeacherDashboard(profileId: string, role: string) {
   let assignmentsQuery = supabase
     .from("assignments")
     .select(
-      "id, title, instructions, due_at, max_grade, status, published_at, created_at, classes!inner(name), assignment_attachments(count)"
+      "id, title, instructions, due_at, max_grade, status, published_at, created_at, class_id, classes!inner(name), assignment_attachments(count)"
     )
     .order("created_at", { ascending: false });
   if (classIds) assignmentsQuery = assignmentsQuery.in("class_id", classIds.length ? classIds : ["00000000-0000-0000-0000-000000000000"]);
 
-  const conversationIds = (convRes.data ?? [])
+  // Paged: conversations grow past the PostgREST per-request max-rows (this
+  // project caps at 1000; the table already held 1086) and an unpaged select
+  // drops the tail silently with a HTTP 200.
+  const convRows = await fetchAll<DashboardConversation>((range) =>
+    supabase
+      .from("conversations")
+      .select("id, student_id, status, closed_by, assignment:assignments!inner(id, due_at, class_id)")
+      .order("id")
+      .range(range.from, range.to)
+  );
+
+  const conversationIds = convRows
     .filter((c) => {
-      const a = (c as { assignment?: { class_id?: string } | null }).assignment;
+      const a = c.assignment;
       if (classIds && (!a?.class_id || !classIds.includes(a.class_id))) return false;
       return true;
     })
-    .map((c) => (c as { id: string }).id);
+    .map((c) => c.id);
 
   const [classesRes, assignmentsRes, subsRes, gradesRes, chatActive] = await Promise.all([
     classesQuery,
@@ -107,7 +126,7 @@ async function loadTeacherDashboard(profileId: string, role: string) {
     classTeacherIds: classIds,
     unreadCount: unreadCount ?? 0,
     classes: classesRes.data ?? [],
-    conversations: convRes.data ?? [],
+    conversations: convRows,
     assignments: assignmentsRes.data ?? [],
     enrollments: enrollRes.data ?? [],
     submittedIds: (subsRes.data ?? []).map((s) => s.conversation_id as string),
@@ -173,12 +192,7 @@ export default async function TeacherPage({
   // eslint-disable-next-line react-hooks/purity
   const nowMs = Date.now();
 
-  const conversations = (data.conversations as {
-    id: string;
-    status: string;
-    closed_by: string | null;
-    assignment?: { id?: string; class_id?: string; due_at?: string | null } | null;
-  }[]).filter((c) => {
+  const conversations = (data.conversations as DashboardConversation[]).filter((c) => {
     const a = c.assignment;
     if (!a?.class_id || !inScope([a.class_id])) return false;
     return true;
@@ -188,12 +202,7 @@ export default async function TeacherPage({
   const rows = data.assignments as unknown as Row[];
 
   const activeStatusByAssignment = new Map<string, boolean>();
-  for (const c of data.conversations as {
-    id: string;
-    status: string;
-    closed_by: string | null;
-    assignment?: { id?: string; class_id?: string; due_at?: string | null } | null;
-  }[]) {
+  for (const c of conversations) {
     const aid = c.assignment?.id;
     if (!aid) continue;
     if (c.status === "active") activeStatusByAssignment.set(aid, true);
@@ -212,28 +221,54 @@ export default async function TeacherPage({
   const chatActive = new Set(data.chatActivityIds);
 
   const activeAssignmentIds = new Set(activeRows.map((r) => r.id));
-  const activeConversations = conversations.filter(
-    (c) => c.assignment?.id && activeAssignmentIds.has(c.assignment.id)
-  );
+  const conversationsByAssignment = new Map<string, DashboardConversation[]>();
+  for (const c of conversations) {
+    const aid = c.assignment?.id;
+    if (!aid || !activeAssignmentIds.has(aid)) continue;
+    const list = conversationsByAssignment.get(aid) ?? [];
+    list.push(c);
+    conversationsByAssignment.set(aid, list);
+  }
 
+  // Students currently in each class — the same number the class badges show.
+  const enrolledByClass = new Map<string, Set<string>>();
+  for (const e of data.enrollments as { class_id: string; student_id: string }[]) {
+    const set = enrolledByClass.get(e.class_id) ?? new Set<string>();
+    set.add(e.student_id);
+    enrolledByClass.set(e.class_id, set);
+  }
+  const NO_ENROLLMENT: ReadonlySet<string> = new Set();
+
+  // Count students, not conversations: each student carries exactly one
+  // homework status per active homework, transferred students stay attached
+  // to the class they left (skipped), and students who never opened the
+  // homework surface as not_submitted instead of vanishing.
   const statusCounts = new Map<TeacherStatusKey, number>();
   const needsByAssignment = new Map<string, number>();
-  for (const c of activeConversations) {
-    const a = c.assignment;
-    const key = computeAssignmentStatus({
-      role: "teacher",
-      status: c.status,
-      closedBy: c.closed_by,
-      hasGrade: gradedIds.has(c.id),
-      hasSubmission: submittedIds.has(c.id),
-      hasStudentMessage: chatActive.has(c.id),
-      dueAt: a?.due_at ?? null,
+  for (const a of activeRows) {
+    const entries = homeworkStudentStatuses({
+      enrolled: enrolledByClass.get(a.class_id) ?? NO_ENROLLMENT,
+      conversations: (conversationsByAssignment.get(a.id) ?? []).map(
+        (c): StudentHomeworkConversation => ({
+          id: c.id,
+          student_id: c.student_id,
+          status: c.status,
+          closed_by: c.closed_by,
+          hasGrade: gradedIds.has(c.id),
+          hasSubmission: submittedIds.has(c.id),
+          hasStudentMessage: chatActive.has(c.id)
+        })
+      ),
+      dueAt: a.due_at,
       nowMs
-    }) as TeacherStatusKey;
-    statusCounts.set(key, (statusCounts.get(key) ?? 0) + 1);
-    if (a?.id && (key === "under_review" || key === "awaiting_grading")) {
-      needsByAssignment.set(a.id, (needsByAssignment.get(a.id) ?? 0) + 1);
+    });
+    const totals = statusTotals(entries);
+    for (const [key, count] of totals) {
+      statusCounts.set(key, (statusCounts.get(key) ?? 0) + count);
     }
+    const needs =
+      (totals.get("under_review") ?? 0) + (totals.get("awaiting_grading") ?? 0);
+    if (needs > 0) needsByAssignment.set(a.id, needs);
   }
 
   const studentCounts = new Map<string, number>();

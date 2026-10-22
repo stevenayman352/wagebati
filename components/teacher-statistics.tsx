@@ -18,9 +18,12 @@ import { APP_TIME_ZONE, formatAppDate } from "@/lib/dates";
 import { cn } from "@/lib/utils";
 
 export type StatsStudent = {
+  id: string;
   name: string;
   code: string;
-  conversationId: string;
+  /** Null when the student never opened the homework — the link targets their profile page instead. */
+  conversationId: string | null;
+  href: string;
 };
 
 export type HomeworkStat = {
@@ -325,13 +328,13 @@ export function TeacherStatistics({ homeworkStats }: { homeworkStats: HomeworkSt
                       <div className="grid gap-2 sm:grid-cols-2">
                         {selected.students[activeStatus].map((s, i) => (
                           <motion.div
-                            key={s.conversationId}
+                            key={s.href}
                             initial={{ opacity: 0, x: 24 }}
                             animate={{ opacity: 1, x: 0 }}
                             transition={{ delay: Math.min(i * 0.04, 0.4), duration: 0.28, ease: "easeOut" }}
                           >
                             <Link
-                              href={`/teacher/conversations/${s.conversationId}`}
+                              href={s.href}
                               className="group flex items-center gap-3 rounded-xl border border-border/70 bg-card p-3 transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-raise active:translate-y-0"
                             >
                               <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-extrabold text-primary">
