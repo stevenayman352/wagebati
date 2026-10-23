@@ -14,6 +14,7 @@ export type Row = {
 
 export type ExportItem = {
   id?: string;
+  student_id?: string;
   assignment?: { title?: string; class_id?: string; max_grade?: number | null };
   student?: { full_name?: string; email?: string; code?: number };
   grade_row?: { grade?: number | null; comment?: string | null };
@@ -21,6 +22,19 @@ export type ExportItem = {
   status: string;
   updated_at?: string;
 };
+
+/**
+ * A class export is the CURRENT class sheet: a student who was transferred out
+ * still has conversations on the old class's assignments (history), but must
+ * not appear in the old class's Excel/PDF. The student's own report keeps the
+ * full history because studentRows() does not apply this filter.
+ */
+export function filterRowsToStudents<T extends { student_id?: string }>(
+  rows: T[],
+  studentIds: ReadonlySet<string>
+): T[] {
+  return rows.filter((row) => row.student_id != null && studentIds.has(String(row.student_id)));
+}
 
 export function statusLabel(status: string, hasSubmission: boolean) {
   if (status === "closed") return "مكتمل";

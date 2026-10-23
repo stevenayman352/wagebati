@@ -1,3 +1,5 @@
+import type { TransferGradePreview } from "@/lib/transfer-grades";
+
 export type AppRole = "admin" | "teacher" | "student";
 export type ConversationStatus = "active" | "closed";
 export type MessageKind = "text" | "voice" | "image";
@@ -28,6 +30,13 @@ export type AssignmentMatch = {
   conversationCount: number;
 };
 
+export type TransferSummary = {
+  moved: number;
+  gradesCopied: number;
+  gradesKept: number;
+  gradesFailed: number;
+};
+
 export type ActionState = {
   ok: boolean;
   message: string;
@@ -35,4 +44,7 @@ export type ActionState = {
   rejected?: number;
   issues?: ImportIssue[];
   matches?: AssignmentMatch[];
+  /** Set when a transfer needs the admin to map old homework to new homework. */
+  gradePreview?: TransferGradePreview;
+  transferSummary?: TransferSummary;
 };

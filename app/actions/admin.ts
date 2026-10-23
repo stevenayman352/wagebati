@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { fetchAll } from "@/lib/supabase/fetch-all";
 import { removeGradeRow, writeGradeRow } from "@/lib/admin-grades";
 import { accountSchema, classSchema, codeSchema, gradeSchema, uuidSchema } from "@/lib/validators";
 import { accountEmailForCode, generateAccountCode } from "@/lib/accounts";
@@ -14,8 +15,17 @@ import {
   isCrossYearTransfer,
   parseTransferFile,
   validateTransferRows,
-  type TransferClass
+  type TransferClass,
+  type ValidTransferRow
 } from "@/lib/transfer";
+import { copyTransferGrades, loadTransferGradePreview } from "@/lib/transfer-grade-data";
+import {
+  mergeTransferGradePreviews,
+  parseGradePlan,
+  validateGradePlan,
+  type TransferGradePlan,
+  type TransferGradePreview
+} from "@/lib/transfer-grades";
 import type { ActionState, AssignmentMatch, ImportIssue } from "@/lib/types";
 import { verifyAdminPasswordAction } from "@/app/actions/auth";
 
@@ -570,15 +580,27 @@ async function purgeStudentClassConversations(admin: AdminClient, studentId: str
 
 /**
  * Moves one student out of `sourceClassIds` (or out of every class when not
- * given) and into `target`. Returns whether anything changed and how many
- * conversations were purged for a cross-year move.
+ * given) and into `target`.
+ *
+ * Same-year sources: the planned marks are copied to the matching homework in
+ * the new class BEFORE the link moves, so a failed copy leaves the student in
+ * the old class and the admin can retry. Cross-year sources: their
+ * conversations are purged after the link moves.
  */
 async function transferStudent(
   admin: AdminClient,
+  adminId: string,
   studentId: string,
   target: TransferClass,
-  sourceClassIds?: string[]
-): Promise<{ moved: boolean; purgedConversations: number; message?: string }> {
+  options: { sourceClassIds?: string[]; gradePlan?: TransferGradePlan } = {}
+): Promise<{
+  moved: boolean;
+  purgedConversations: number;
+  gradesCopied: number;
+  gradesKept: number;
+  gradesFailed: number;
+  message?: string;
+}> {
   const { data: linkRows, error: linkError } = await admin
     .from("class_students")
     .select("class_id")
@@ -586,11 +608,77 @@ async function transferStudent(
   if (linkError) throw new Error(linkError.message);
 
   const currentClassIds = (linkRows ?? []).map((l) => String(l.class_id));
-  const requested = sourceClassIds?.length ? sourceClassIds : currentClassIds;
+  const requested = options.sourceClassIds?.length ? options.sourceClassIds : currentClassIds;
   const classIdsToRemove = requested.filter((id) => id !== target.id && currentClassIds.includes(id));
 
-  if (classIdsToRemove.length === 0 && currentClassIds.includes(target.id)) {
-    return { moved: false, purgedConversations: 0, message: "الطالب موجود في الصف الجديد بالفعل." };
+  if (classIdsToRemove.length === 0) {
+    if (currentClassIds.includes(target.id)) {
+      return {
+        moved: false,
+        purgedConversations: 0,
+        gradesCopied: 0,
+        gradesKept: 0,
+        gradesFailed: 0,
+        message: "الطالب موجود في الصف الجديد بالفعل."
+      };
+    }
+    if (options.sourceClassIds?.length) {
+      return {
+        moved: false,
+        purgedConversations: 0,
+        gradesCopied: 0,
+        gradesKept: 0,
+        gradesFailed: 0,
+        message: "الطالب غير مرتبط بالصف القديم المحدد."
+      };
+    }
+  }
+
+  // Same-year vs cross-year has to be known before the link is touched.
+  const sameYearClassIds: string[] = [];
+  const crossYearClassIds: string[] = [];
+  if (classIdsToRemove.length > 0) {
+    const { data: classRows, error } = await admin
+      .from("classes")
+      .select("id, grade_label")
+      .in("id", classIdsToRemove);
+    if (error) throw new Error(error.message);
+    const labelById = new Map(
+      ((classRows ?? []) as Array<{ id: string; grade_label: string | null }>).map((c) => [
+        String(c.id),
+        String(c.grade_label ?? "")
+      ])
+    );
+    for (const classId of classIdsToRemove) {
+      if (isCrossYearTransfer(labelById.get(classId), target.gradeLabel)) {
+        crossYearClassIds.push(classId);
+      } else {
+        sameYearClassIds.push(classId);
+      }
+    }
+  }
+
+  let grades = { copied: 0, kept: 0, failed: 0 };
+  if (sameYearClassIds.length > 0 && options.gradePlan?.length) {
+    grades = await copyTransferGrades(admin, {
+      studentId,
+      target,
+      sourceClassIds: sameYearClassIds,
+      plan: options.gradePlan,
+      fallbackGradedBy: adminId
+    });
+    if (grades.failed > 0) {
+      throw new Error(`تعذر نقل ${grades.failed} درجة، لم يتم نقل الطالب. حاول مجددًا.`);
+    }
+  }
+
+  // Add the target link before removing the old ones: a failed insert must not
+  // leave the student without a class.
+  if (!currentClassIds.includes(target.id)) {
+    const { error: linkErr } = await admin
+      .from("class_students")
+      .upsert({ class_id: target.id, student_id: studentId });
+    if (linkErr) throw new Error(linkErr.message);
   }
 
   if (classIdsToRemove.length > 0) {
@@ -602,32 +690,111 @@ async function transferStudent(
     if (error) throw new Error(error.message);
   }
 
-  const { error: linkErr } = await admin
-    .from("class_students")
-    .upsert({ class_id: target.id, student_id: studentId });
-  if (linkErr) throw new Error(linkErr.message);
-
   let purgedConversations = 0;
-  if (classIdsToRemove.length > 0) {
-    const { data: classRows } = await admin
-      .from("classes")
-      .select("id, grade_label")
-      .in("id", classIdsToRemove);
-    const labelById = new Map(
-      ((classRows ?? []) as Array<{ id: string; grade_label: string | null }>).map((c) => [
-        String(c.id),
-        String(c.grade_label ?? "")
-      ])
-    );
-    const crossYearClassIds = classIdsToRemove.filter((classId) =>
-      isCrossYearTransfer(labelById.get(classId), target.gradeLabel)
-    );
-    if (crossYearClassIds.length > 0) {
-      purgedConversations = await purgeStudentClassConversations(admin, studentId, crossYearClassIds);
-    }
+  if (crossYearClassIds.length > 0) {
+    purgedConversations = await purgeStudentClassConversations(admin, studentId, crossYearClassIds);
   }
 
-  return { moved: true, purgedConversations };
+  return {
+    moved: true,
+    purgedConversations,
+    gradesCopied: grades.copied,
+    gradesKept: grades.kept,
+    gradesFailed: grades.failed
+  };
+}
+
+/**
+ * Invalidates the pages/caches touched by a transfer, including every teacher
+ * of the source and target classes (their conversation lists lose the student
+ * and the new-class homework gains a mark).
+ */
+async function invalidateTransferCaches(
+  admin: AdminClient,
+  adminId: string,
+  classIds: string[],
+  studentIds: string[]
+) {
+  invalidateAdminCaches(adminId);
+  invalidateAssignmentCaches(null, studentIds);
+
+  const uniqueClassIds = [...new Set(classIds.filter(Boolean))];
+  if (uniqueClassIds.length > 0) {
+    const { data } = await admin
+      .from("class_teachers")
+      .select("teacher_id")
+      .in("class_id", uniqueClassIds);
+    const teacherIds = [...new Set((data ?? []).map((row) => String(row.teacher_id)))];
+    for (const teacherId of teacherIds) invalidateAssignmentCaches(teacherId, studentIds);
+  }
+
+  revalidatePath("/admin/accounts");
+  revalidatePath("/admin/classes");
+  revalidatePath("/admin/transfer");
+  revalidatePath("/admin/grades");
+}
+
+export async function previewTransferGradesAction(_: ActionState, formData: FormData): Promise<ActionState> {
+  await requireRole(["admin"]);
+
+  const targetClassId = uuidSchema.safeParse(formData.get("targetClassId"));
+  if (!targetClassId.success) return { ok: false, message: "اختر الصف الجديد أولًا." };
+
+  const studentIds = [
+    ...new Set(
+      formData
+        .getAll("studentIds")
+        .map((id) => uuidSchema.safeParse(id))
+        .filter((r) => r.success)
+        .map((r) => r.data)
+    )
+  ];
+  if (studentIds.length === 0) return { ok: false, message: "لم يتم تحديد أي طالب." };
+
+  const sourceClassIdRaw = formData.get("sourceClassId");
+  const sourceClassId = sourceClassIdRaw ? uuidSchema.safeParse(sourceClassIdRaw) : null;
+  if (sourceClassIdRaw && !sourceClassId?.success) {
+    return { ok: false, message: "الصف القديم غير صالح." };
+  }
+
+  const admin = createSupabaseAdminClient();
+
+  const { data: targetClass, error: targetError } = await admin
+    .from("classes")
+    .select("id, name, grade_label")
+    .eq("id", targetClassId.data)
+    .single();
+  if (targetError || !targetClass) return { ok: false, message: "الصف الجديد غير موجود." };
+
+  const target: TransferClass = {
+    id: String(targetClass.id),
+    name: String(targetClass.name ?? ""),
+    gradeLabel: String(targetClass.grade_label ?? "")
+  };
+
+  const { data: profiles } = await admin.from("profiles").select("id, role").in("id", studentIds);
+  const studentIdSet = new Set(
+    ((profiles ?? []).filter((p) => p.role === "student") as Array<{ id: string }>).map((p) =>
+      String(p.id)
+    )
+  );
+  const transferableIds = studentIds.filter((id) => studentIdSet.has(id));
+  if (transferableIds.length === 0) return { ok: false, message: "لا يوجد طلاب صالحون للنقل." };
+
+  try {
+    const preview = await loadTransferGradePreview(admin, {
+      target,
+      studentIds: transferableIds,
+      onlySourceClassId:
+        sourceClassId && sourceClassId.success ? sourceClassId.data : undefined
+    });
+    return { ok: true, message: "", gradePreview: preview };
+  } catch (e) {
+    return {
+      ok: false,
+      message: e instanceof Error ? e.message : "تعذر تجهيز درجات النقل."
+    };
+  }
 }
 
 export async function transferStudentsAction(_: ActionState, formData: FormData): Promise<ActionState> {
@@ -636,12 +803,24 @@ export async function transferStudentsAction(_: ActionState, formData: FormData)
   const targetClassId = uuidSchema.safeParse(formData.get("targetClassId"));
   if (!targetClassId.success) return { ok: false, message: "اختر الصف الجديد أولًا." };
 
-  const studentIds = formData
-    .getAll("studentIds")
-    .map((id) => uuidSchema.safeParse(id))
-    .filter((r) => r.success)
-    .map((r) => r.data);
+  const studentIds = [
+    ...new Set(
+      formData
+        .getAll("studentIds")
+        .map((id) => uuidSchema.safeParse(id))
+        .filter((r) => r.success)
+        .map((r) => r.data)
+    )
+  ];
   if (studentIds.length === 0) return { ok: false, message: "لم يتم تحديد أي طالب." };
+
+  const sourceClassIdRaw = formData.get("sourceClassId");
+  const sourceClassId = sourceClassIdRaw ? uuidSchema.safeParse(sourceClassIdRaw) : null;
+  if (sourceClassIdRaw && !sourceClassId?.success) {
+    return { ok: false, message: "الصف القديم غير صالح." };
+  }
+  const onlySourceClassId =
+    sourceClassId && sourceClassId.success ? sourceClassId.data : undefined;
 
   const admin = createSupabaseAdminClient();
 
@@ -661,14 +840,60 @@ export async function transferStudentsAction(_: ActionState, formData: FormData)
   // Only real student accounts can be transferred.
   const { data: profiles } = await admin.from("profiles").select("id, role").in("id", studentIds);
   const studentIdSet = new Set(
-    ((profiles ?? []).filter((p) => p.role === "student") as Array<{ id: string }>).map((p) => String(p.id))
+    ((profiles ?? []).filter((p) => p.role === "student") as Array<{ id: string }>).map((p) =>
+      String(p.id)
+    )
   );
+  const transferableIds = studentIds.filter((id) => studentIdSet.has(id));
+  if (transferableIds.length === 0) {
+    return { ok: false, message: "لم يتم تحديد أي طالب صالح للنقل." };
+  }
+
+  // Rebuild the preview server-side: never trust a mapping the browser sends
+  // without checking it still covers every homework that has a mark.
+  let preview: TransferGradePreview;
+  try {
+    preview = await loadTransferGradePreview(admin, {
+      target,
+      studentIds: transferableIds,
+      onlySourceClassId
+    });
+  } catch (e) {
+    return {
+      ok: false,
+      message: e instanceof Error ? e.message : "تعذر تجهيز درجات النقل."
+    };
+  }
+
+  const planRaw = formData.get("gradePlan");
+  const plan = parseGradePlan(planRaw);
+  if (typeof planRaw === "string" && planRaw.trim() !== "" && plan === null) {
+    return {
+      ok: false,
+      message: "تعذر قراءة خطة نقل الدرجات. أعد المحاولة.",
+      gradePreview: preview
+    };
+  }
+  const validation = validateGradePlan(plan, preview);
+  if (!validation.ok) {
+    return { ok: false, message: validation.message, gradePreview: preview };
+  }
+
+  // Cache invalidation must include classes with no grades too: the student
+  // leaves them even though they contribute no mapping rows.
+  const { data: currentLinks } = await admin
+    .from("class_students")
+    .select("class_id")
+    .in("student_id", transferableIds);
 
   let moved = 0;
   let resetStudents = 0;
   let purgedConversations = 0;
+  let gradesCopied = 0;
+  let gradesKept = 0;
   let skipped = 0;
   let failed = 0;
+  let firstError = "";
 
   for (const studentId of studentIds) {
     if (!studentIdSet.has(studentId)) {
@@ -676,9 +901,14 @@ export async function transferStudentsAction(_: ActionState, formData: FormData)
       continue;
     }
     try {
-      const result = await transferStudent(admin, studentId, target);
+      const result = await transferStudent(admin, profile.id, studentId, target, {
+        sourceClassIds: onlySourceClassId ? [onlySourceClassId] : undefined,
+        gradePlan: plan ?? undefined
+      });
       if (result.moved) {
         moved += 1;
+        gradesCopied += result.gradesCopied;
+        gradesKept += result.gradesKept;
         if (result.purgedConversations > 0) {
           resetStudents += 1;
           purgedConversations += result.purgedConversations;
@@ -686,8 +916,9 @@ export async function transferStudentsAction(_: ActionState, formData: FormData)
       } else {
         skipped += 1;
       }
-    } catch {
+    } catch (e) {
       failed += 1;
+      if (!firstError && e instanceof Error) firstError = e.message;
     }
   }
 
@@ -696,24 +927,39 @@ export async function transferStudentsAction(_: ActionState, formData: FormData)
       ok: false,
       message:
         failed > 0
-          ? "تعذر نقل بعض الطلاب، حاول مجددًا."
+          ? `تعذر نقل بعض الطلاب، حاول مجددًا.${firstError ? ` (${firstError})` : ""}`
           : "لم يتم نقل أي طالب (موجودون في الصف الجديد بالفعل أو حسابات غير طلاب)."
     };
   }
 
-  invalidateAdminCaches(profile.id);
-  invalidateAssignmentCaches(null, Array.from(studentIdSet));
-  revalidatePath("/admin/accounts");
-  revalidatePath("/admin/classes");
-  revalidatePath("/admin/transfer");
+  await invalidateTransferCaches(
+    admin,
+    profile.id,
+    [
+      target.id,
+      ...(currentLinks ?? []).map((link) => String(link.class_id)),
+      ...preview.groups.map((group) => group.sourceClassId)
+    ],
+    [...studentIdSet]
+  );
 
+  const gradeNote = gradesCopied > 0 ? ` نُقلت ${gradesCopied} درجة.` : "";
+  const keptNote = gradesKept > 0 ? ` أُبقيت ${gradesKept} درجة موجودة في الصف الجديد.` : "";
   const resetNote =
-    resetStudents > 0 ? ` مسح سجل ${purgedConversations} محادثة لـ ${resetStudents} طالب بين سنتين مختلفتين.` : "";
+    resetStudents > 0
+      ? ` مسح سجل ${purgedConversations} محادثة لـ ${resetStudents} طالب بين سنتين مختلفتين.`
+      : "";
   const skipNote = skipped > 0 ? ` تم تجاوز ${skipped}.` : "";
-  const failNote = failed > 0 ? ` فشل ${failed}.` : "";
+  const failNote = failed > 0 ? ` فشل ${failed}${firstError ? ` (${firstError})` : ""}.` : "";
   return {
     ok: true,
-    message: `تم نقل ${moved} طالب إلى «${target.name}».${resetNote}${skipNote}${failNote}`
+    message: `تم نقل ${moved} طالب إلى «${target.name}».${gradeNote}${keptNote}${resetNote}${skipNote}${failNote}`,
+    transferSummary: {
+      moved,
+      gradesCopied,
+      gradesKept,
+      gradesFailed: 0
+    }
   };
 }
 
@@ -733,50 +979,139 @@ export async function importTransfersAction(_: ActionState, formData: FormData):
   if (parsed.headerError) return { ok: false, message: parsed.headerError };
   if (parsed.rows.length === 0) return { ok: false, message: "لم يتم العثور على أي صفوف بيانات في أول ورقة." };
 
+  const planRaw = formData.get("gradePlan");
+  const plan = parseGradePlan(planRaw);
+  if (typeof planRaw === "string" && planRaw.trim() !== "" && plan === null) {
+    return { ok: false, message: "تعذر قراءة خطة نقل الدرجات. أعد المحاولة." };
+  }
   const admin = createSupabaseAdminClient();
 
-  const [{ data: studentsRes }, { data: classesRes }, { data: linksRes }] = await Promise.all([
-    admin.from("profiles").select("id, code, full_name, role").eq("role", "student"),
-    admin.from("classes").select("id, name, grade_label"),
-    admin.from("class_students").select("class_id, student_id")
-  ]);
+  let studentsRes: Array<{ id: string; code: string | null; full_name: string | null }>;
+  let classesRes: Array<{ id: string; name: string | null; grade_label: string | null }>;
+  let linksRes: Array<{ class_id: string; student_id: string }>;
+  try {
+    [studentsRes, classesRes, linksRes] = await Promise.all([
+      fetchAll<{ id: string; code: string | null; full_name: string | null }>((range) =>
+        admin
+          .from("profiles")
+          .select("id, code, full_name")
+          .eq("role", "student")
+          .order("id")
+          .range(range.from, range.to)
+      ),
+      fetchAll<{ id: string; name: string | null; grade_label: string | null }>((range) =>
+        admin
+          .from("classes")
+          .select("id, name, grade_label")
+          .order("id")
+          .range(range.from, range.to)
+      ),
+      fetchAll<{ class_id: string; student_id: string }>((range) =>
+        admin
+          .from("class_students")
+          .select("class_id, student_id")
+          .order("class_id")
+          .order("student_id")
+          .range(range.from, range.to)
+      )
+    ]);
+  } catch (e) {
+    return {
+      ok: false,
+      message: e instanceof Error ? e.message : "تعذر قراءة بيانات الطلاب والصفوف."
+    };
+  }
 
-  const classes: TransferClass[] = (
-    (classesRes ?? []) as Array<{ id: string; name: string; grade_label: string | null }>
-  ).map((c) => ({
+  const classes: TransferClass[] = classesRes.map((c) => ({
     id: String(c.id),
     name: String(c.name ?? ""),
     gradeLabel: String(c.grade_label ?? "")
   }));
 
   const { valid, issues } = validateTransferRows(parsed.rows, {
-    students: ((studentsRes ?? []) as Array<{ id: string; code: string; full_name: string }>).map((s) => ({
+    students: studentsRes.map((s) => ({
       id: String(s.id),
       code: String(s.code ?? ""),
       name: String(s.full_name ?? "")
     })),
     classes,
-    links: ((linksRes ?? []) as Array<{ class_id: string; student_id: string }>).map((l) => ({
+    links: linksRes.map((l) => ({
       classId: String(l.class_id),
       studentId: String(l.student_id)
     }))
   });
 
   const reported: Array<{ row: number; column: string; message: string }> = [...issues];
+
+  // One preview per target class, limited to each row's own old class. This is
+  // what makes the Excel path ask only about the homework the file touches.
+  const rowsByTarget = new Map<string, ValidTransferRow[]>();
+  for (const row of valid) {
+    const list = rowsByTarget.get(row.toClassId) ?? [];
+    list.push(row);
+    rowsByTarget.set(row.toClassId, list);
+  }
+
+  const previews: TransferGradePreview[] = [];
+  for (const [targetId, rows] of rowsByTarget) {
+    const target = classes.find((c) => c.id === targetId);
+    if (!target) continue;
+    try {
+      previews.push(
+        await loadTransferGradePreview(admin, {
+          target,
+          studentIds: [...new Set(rows.map((row) => row.studentId))],
+          links: rows.map((row) => ({ studentId: row.studentId, classId: row.fromClassId }))
+        })
+      );
+    } catch (e) {
+      return {
+        ok: false,
+        message: e instanceof Error ? e.message : "تعذر تجهيز درجات النقل.",
+        issues: reported
+      };
+    }
+  }
+  const preview = mergeTransferGradePreviews(previews);
+
+  // Phase 1: the file alone. If a mapping decision is needed, stop before
+  // touching anything and let the browser show the mapping dialog.
+  if (!plan && preview.needsReview) {
+    return {
+      ok: false,
+      message: "",
+      gradePreview: preview,
+      issues: reported
+    };
+  }
+
+  const effectivePlan = plan ?? preview.autoPlan;
+  const validation = validateGradePlan(effectivePlan, preview);
+  if (!validation.ok) {
+    return { ok: false, message: validation.message, gradePreview: preview, issues: reported };
+  }
+
   let transferred = 0;
   let resetStudents = 0;
   let purgedConversations = 0;
+  let gradesCopied = 0;
+  let gradesKept = 0;
 
   for (const row of valid) {
     const target = classes.find((c) => c.id === row.toClassId);
     if (!target) continue;
     try {
-      const result = await transferStudent(admin, row.studentId, target, [row.fromClassId]);
+      const result = await transferStudent(admin, profile.id, row.studentId, target, {
+        sourceClassIds: [row.fromClassId],
+        gradePlan: effectivePlan
+      });
       if (!result.moved) {
         reported.push({ row: row.row, column: "new class", message: result.message ?? "لم يتم النقل." });
         continue;
       }
       transferred += 1;
+      gradesCopied += result.gradesCopied;
+      gradesKept += result.gradesKept;
       if (result.purgedConversations > 0) {
         resetStudents += 1;
         purgedConversations += result.purgedConversations;
@@ -786,22 +1121,33 @@ export async function importTransfersAction(_: ActionState, formData: FormData):
     }
   }
 
-  invalidateAdminCaches(profile.id);
-  invalidateAssignmentCaches(null, valid.map((r) => r.studentId));
-  revalidatePath("/admin/accounts");
-  revalidatePath("/admin/classes");
-  revalidatePath("/admin/transfer");
+  await invalidateTransferCaches(
+    admin,
+    profile.id,
+    [...new Set([...valid.map((row) => row.fromClassId), ...valid.map((row) => row.toClassId)])],
+    [...new Set(valid.map((row) => row.studentId))]
+  );
 
   const rejected = reported.length;
   const summary = `تم نقل ${transferred} من أصل ${parsed.rows.length} طالب.`;
+  const gradeNote = gradesCopied > 0 ? ` نُقلت ${gradesCopied} درجة.` : "";
+  const keptNote = gradesKept > 0 ? ` أُبقيت ${gradesKept} درجة موجودة في الصف الجديد.` : "";
   const resetNote =
-    resetStudents > 0 ? ` مسح سجل ${purgedConversations} محادثة لـ ${resetStudents} طالب بين سنتين مختلفتين.` : "";
+    resetStudents > 0
+      ? ` مسح سجل ${purgedConversations} محادثة لـ ${resetStudents} طالب بين سنتين مختلفتين.`
+      : "";
   return {
     ok: transferred > 0,
-    message: (rejected > 0 ? `${summary} مرفوض: ${rejected}.` : summary) + resetNote,
+    message: (rejected > 0 ? `${summary} مرفوض: ${rejected}.` : summary) + gradeNote + keptNote + resetNote,
     created: transferred,
     rejected,
-    issues: reported
+    issues: reported,
+    transferSummary: {
+      moved: transferred,
+      gradesCopied,
+      gradesKept,
+      gradesFailed: 0
+    }
   };
 }
 

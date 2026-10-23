@@ -5,7 +5,7 @@ import { jsPDF } from "jspdf";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/auth";
-import { toRow, buildXlsxBuffer, type Row } from "@/lib/export";
+import { toRow, buildXlsxBuffer, filterRowsToStudents, type Row } from "@/lib/export";
 import type { Profile } from "@/lib/types";
 import type { ExportItem } from "@/lib/export";
 import { rateLimit } from "@/lib/rate-limit";
@@ -93,7 +93,24 @@ export async function GET(request: NextRequest) {
     target === "class" ? classRows(admin, id) : studentRows(admin, id)
   ]);
   if (rawRows.error) return new Response(rawRows.error, { status: 403 });
-  const rows = { data: rawRows.data.map((row) => toRow(row as unknown as ExportItem, className)) };
+
+  // Transferred students keep their old conversations as history, so the old
+  // class query still returns them. The class sheet must only list students
+  // currently enrolled in that class; the student report stays unfiltered.
+  let currentStudentIds: Set<string> | null = null;
+  if (target === "class") {
+    const { data: members, error: membersError } = await admin
+      .from("class_students")
+      .select("student_id")
+      .eq("class_id", id);
+    if (membersError) return new Response(membersError.message, { status: 500 });
+    currentStudentIds = new Set((members ?? []).map((row) => String(row.student_id)));
+  }
+
+  const exportRows = currentStudentIds
+    ? filterRowsToStudents(rawRows.data, currentStudentIds)
+    : rawRows.data;
+  const rows = { data: exportRows.map((row) => toRow(row as unknown as ExportItem, className)) };
 
   const fileBase =
     target === "class"
@@ -156,7 +173,7 @@ async function classRows(supabase: DB, classId: string) {
   const { data, error } = await supabase
     .from("conversations")
     .select(
-      "id, status, updated_at, " +
+      "id, student_id, status, updated_at, " +
       "grade_row:grades!grades_conversation_id_fkey(grade, comment), " +
       "submissions:submissions!submissions_conversation_id_fkey(attempt_number, submitted_at), " +
       "student:profiles!conversations_student_id_fkey(full_name, code), " +

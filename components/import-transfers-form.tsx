@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -11,8 +11,10 @@ import {
   DialogHeader,
   DialogTitle
 } from "@/components/ui/dialog";
+import { GradeMappingForm } from "@/components/grade-mapping-form";
 import { AlertCircle, CheckCircle2, Download, FileUp } from "lucide-react";
 import type { ActionState } from "@/lib/types";
+import type { TransferGradePlan } from "@/lib/transfer-grades";
 
 type Props = {
   action: (state: ActionState, formData: FormData) => Promise<ActionState>;
@@ -28,21 +30,52 @@ const COLUMN_LABELS: Record<string, string> = {
 };
 
 export function ImportTransfersForm({ action }: Props) {
-  const [state, formAction, pending] = useActionState(action, initialState);
+  const [state, setState] = useState<ActionState>(initialState);
+  const [pending, setPending] = useState(false);
   const [dismissed, setDismissed] = useState(false);
-  const formRef = useRef<HTMLFormElement>(null);
+  const [file, setFile] = useState<File | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const open = Boolean(state.message) && !pending && !dismissed;
+  // The mapping dialog stays open while the confirmed transfer runs so the
+  // admin sees the pending state; it closes itself when the action clears
+  // gradePreview.
+  const mappingOpen = Boolean(state.gradePreview) && !dismissed;
+  const reportOpen = Boolean(state.message) && !state.gradePreview && !pending && !dismissed;
 
   const pickFile = () => fileRef.current?.click();
 
+  const runImport = async (
+    nextFile: File,
+    plan?: TransferGradePlan,
+    keepPreview = false
+  ) => {
+    setPending(true);
+    setDismissed(false);
+    if (!keepPreview) setState(initialState);
+
+    const formData = new FormData();
+    formData.set("file", nextFile);
+    if (plan) formData.set("gradePlan", JSON.stringify(plan));
+
+    const result = await action(initialState, formData);
+    setPending(false);
+    setState(result);
+    if (result.ok) setFile(null);
+  };
+
   const handleFileChange = () => {
     const input = fileRef.current;
-    if (!input?.files?.length) return;
-    setDismissed(false);
-    formRef.current?.requestSubmit();
+    const picked = input?.files?.[0];
+    if (!picked) return;
+    setFile(picked);
     input.value = "";
+    void runImport(picked);
+  };
+
+  const closeMapping = () => {
+    setDismissed(true);
+    setFile(null);
+    setState(initialState);
   };
 
   const transferred = state.created ?? 0;
@@ -51,7 +84,7 @@ export function ImportTransfersForm({ action }: Props) {
 
   return (
     <>
-      <form ref={formRef} action={formAction} className="space-y-3">
+      <form className="space-y-3" onSubmit={(event) => event.preventDefault()}>
         <input
           ref={fileRef}
           name="file"
@@ -74,7 +107,43 @@ export function ImportTransfersForm({ action }: Props) {
         </div>
       </form>
 
-      <Dialog open={open} onOpenChange={(value) => { if (!value) setDismissed(true); }}>
+      <Dialog
+        open={mappingOpen}
+        onOpenChange={(value) => {
+          if (!value) closeMapping();
+        }}
+      >
+        <DialogContent showCloseButton={false} className="sm:max-w-3xl">
+          <DialogHeader>
+            <DialogTitle className="text-lg">مطابقة درجات الواجبات</DialogTitle>
+            <DialogDescription>
+              الملف يحتوي على طلاب ستنتقل درجاتهم إلى الصف الجديد. راجع الواجب المقابل لكل واجب قبل
+              تأكيد النقل.
+            </DialogDescription>
+          </DialogHeader>
+          {state.gradePreview ? (
+            <GradeMappingForm
+              preview={state.gradePreview}
+              pending={pending}
+              error={state.ok ? null : state.message || null}
+              onCancel={closeMapping}
+              onConfirm={(plan) => {
+                if (file) void runImport(file, plan, true);
+              }}
+            />
+          ) : null}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={reportOpen}
+        onOpenChange={(value) => {
+          if (!value) {
+            setDismissed(true);
+            setFile(null);
+          }
+        }}
+      >
         <DialogContent showCloseButton={false} className="sm:max-w-md">
           <DialogHeader className="flex items-center gap-2">
             <span

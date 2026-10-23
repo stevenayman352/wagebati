@@ -24,7 +24,9 @@ export default async function AdminTransferPage() {
             <li className="rounded-xl border border-border/70 p-3">
               <span className="font-semibold">نفس السنة (مثل «سنة اولى بنين A» ← «سنة اولى بنين B»)</span>
               <p className="mt-1 text-muted-foreground">
-                يُنقل الطالب فقط، ويبقى سجل المحادثات والتسليمات والدرجات القديمة كما هو في سجل الطالب.
+                تنتقل درجات الطالب معه إلى واجبات الصف الجديد. إذا اختلفت أسماء الواجبات، أو اختلفت
+                الدرجة العظمى، أو كانت هناك درجة مسجلة بالفعل في الصف الجديد، تظهر نافذة مطابقة لاختيار
+                الواجب المقابل وطريقة نقل الدرجة. يبقى سجل المحادثات والتسليمات القديم محفوظًا.
               </p>
             </li>
             <li className="rounded-xl border border-border/70 p-3">
@@ -37,13 +39,22 @@ export default async function AdminTransferPage() {
             <li className="rounded-xl border border-border/70 p-3">
               <span className="font-semibold">الصفوف بدون سنة/مرحلة</span>
               <p className="mt-1 text-muted-foreground">
-                تُعامل كنفس السنة دائمًا — لا يُمسح أي سجل. عدّل الصف من قسم «الصفوف» وأضف السنة لتفعيل المسح.
+                تُعامل كنفس السنة دائمًا — لا يُمسح أي سجل، وتنتقل الدرجات مع الطالب. عدّل الصف من قسم
+                «الصفوف» وأضف السنة لتفعيل المسح.
+              </p>
+            </li>
+            <li className="rounded-xl border border-border/70 p-3">
+              <span className="font-semibold">كشوف الصفوف وملف الطالب</span>
+              <p className="mt-1 text-muted-foreground">
+                يختفي الطالب من كشف درجات الصف القديم (إكسل وPDF) ويظهر في كشف الصف الجديد. يبقى سجله
+                القديم محفوظًا، ويظهر كاملًا في ملف PDF الخاص بالطالب.
               </p>
             </li>
             <li className="rounded-xl border border-border/70 p-3">
               <span className="font-semibold">الواجبات المنشورة سابقًا</span>
               <p className="mt-1 text-muted-foreground">
-                لا يُنشئ النقل محادثات للواجبات المنشورة سابقًا في الصف الجديد — يظهر للطالب فقط ما يُنشر بعد النقل.
+                لا يُنشئ النقل محادثات للواجبات المنشورة سابقًا في الصف الجديد — يظهر للطالب فقط ما يُنشر
+                بعد النقل، باستثناء الواجبات التي نُقلت لها درجة.
               </p>
             </li>
           </ul>

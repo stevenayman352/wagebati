@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { statusLabel, toRow, buildXlsxBuffer } from "@/lib/export";
+import { statusLabel, toRow, buildXlsxBuffer, filterRowsToStudents } from "@/lib/export";
 
 describe("statusLabel", () => {
   it("maps closed to مكتمل", () => {
@@ -65,6 +65,26 @@ describe("toRow", () => {
     expect(row.grade).toBe("");
     expect(row.comment).toBe("");
     expect(row.dates).toBe("");
+  });
+});
+
+describe("filterRowsToStudents", () => {
+  it("keeps only conversations of students still enrolled in the class", () => {
+    const rows = [
+      { id: "1", student_id: "s1" },
+      { id: "2", student_id: "s2" },
+      { id: "3", student_id: "s3" }
+    ];
+    expect(filterRowsToStudents(rows, new Set(["s1", "s3"]))).toEqual([
+      { id: "1", student_id: "s1" },
+      { id: "3", student_id: "s3" }
+    ]);
+  });
+
+  it("drops rows without a student id instead of leaking them into the class sheet", () => {
+    expect(
+      filterRowsToStudents<{ id: string; student_id?: string }>([{ id: "1" }], new Set(["s1"]))
+    ).toEqual([]);
   });
 });
 
