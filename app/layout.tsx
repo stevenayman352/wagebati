@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import "./globals.css";
 import { PwaRegister } from "@/components/pwa-register";
 import { NavigationLoading } from "@/components/navigation-loading";
+import { CurrentPageTracker } from "@/components/current-page-tracker";
 import { SplashScreen } from "@/components/splash-screen";
 import { Cairo, Amiri } from "next/font/google";
 import { cn } from "@/lib/utils";
@@ -46,6 +47,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <SplashScreen />
         <Suspense fallback={null}>
           <NavigationLoading />
+        </Suspense>
+        <Suspense fallback={null}>
+          <CurrentPageTracker />
         </Suspense>
         {children}
       </body>

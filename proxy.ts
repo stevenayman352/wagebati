@@ -1,11 +1,27 @@
 import { NextResponse, after, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { ensureOverdueConversationsClosed } from "@/lib/close-overdue";
+import { CURRENT_PAGE_COOKIE, shouldRedirectToLogin } from "@/lib/navigation-guard";
 
 const OVERDUE_CHECK_INTERVAL_MS = 60_000;
 let lastOverdueCheck = 0;
 
 export async function proxy(request: NextRequest) {
+  // App pages are reached from inside the UI only. A fresh browser navigation
+  // (typed/pasted URL, bookmark, external link) is sent to /login; router
+  // navigations, Server Actions and same-page reloads are left alone. See
+  // lib/navigation-guard.ts for the exact rules.
+  if (
+    shouldRedirectToLogin({
+      method: request.method,
+      pathname: request.nextUrl.pathname,
+      headers: request.headers,
+      currentPage: request.cookies.get(CURRENT_PAGE_COOKIE)?.value ?? null
+    })
+  ) {
+    return NextResponse.redirect(new URL("/login", request.url));
+  }
+
   const supabaseResponse = NextResponse.next({ request });
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;

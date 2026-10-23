@@ -1,4 +1,4 @@
-const CACHE_NAME = "wajebaty-v3";
+const CACHE_NAME = "wajebaty-v4";
 const ASSETS = ["/", "/login", "/manifest.webmanifest", "/image.png", "/icon-192.png", "/icon-512.png"];
 
 self.addEventListener("install", (event) => {
@@ -17,14 +17,18 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
+
+  // Let the browser perform page navigations itself. Re-issuing a navigation
+  // through `fetch(event.request)` rewrites its Sec-Fetch-* metadata (a typed
+  // URL arrives as `Sec-Fetch-Site: same-origin` / `Sec-Fetch-Dest: empty`),
+  // which the server uses in proxy.ts to tell a typed URL from an in-app
+  // navigation. Offline navigations fall back to the browser's offline page.
+  if (event.request.mode === "navigate") return;
+
   event.respondWith(
     fetch(event.request).catch(async () => {
       const cached = await caches.match(event.request);
       if (cached) return cached;
-      if (event.request.mode === "navigate") {
-        const loginPage = await caches.match("/login");
-        if (loginPage) return loginPage;
-      }
       return new Response("Offline", { status: 503, headers: { "Content-Type": "text/plain" } });
     })
   );
