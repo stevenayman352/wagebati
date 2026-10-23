@@ -27,6 +27,21 @@ function invalidateStudentDashboard(studentId: string) {
   updateTag(`student-dashboard:${studentId}`);
 }
 
+/**
+ * Called by the dashboard class tiles when a homework deadline passes.
+ *
+ * Nothing happens on the server at the deadline, and the dashboard loader is
+ * cached (`use cache: private` + `cacheLife`), so a plain router.refresh() can
+ * keep serving "still active" data. Expiring the tag makes the follow-up
+ * refresh read the truth, which drops the homework from the active list and
+ * returns its class tile to white.
+ */
+export async function expireTeacherDashboardAction(): Promise<void> {
+  const profile = await requireRole(["teacher", "admin"]);
+  updateTag(`teacher-dashboard:${profile.id}`);
+  revalidatePath("/teacher");
+}
+
 export async function createAssignmentAction(_: ActionState, formData: FormData): Promise<ActionState> {
   const profile = await requireRole(["teacher", "admin"]);
   const parsed = assignmentSchema.safeParse({

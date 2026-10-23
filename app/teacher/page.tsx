@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { PageShell } from "@/components/page-shell";
 import { AppNav } from "@/components/app-nav";
+import { ClassTile } from "@/components/class-tile";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -232,6 +233,20 @@ export default async function TeacherPage({
   // Classes with at least one active homework: only these contribute students
   // to the dashboard cards, so only these show a student count in the list.
   const activeClassIds = new Set(activeRows.map((r) => r.class_id));
+
+  // The class tile stays green until the LAST active homework ends, so keep the
+  // latest deadline per class. A homework without a deadline never expires, so
+  // it pins the class green.
+  const activeDueByClass = new Map<string, number | null>();
+  for (const a of activeRows) {
+    const dueMs = a.due_at ? new Date(a.due_at).getTime() : null;
+    if (!activeDueByClass.has(a.class_id)) {
+      activeDueByClass.set(a.class_id, dueMs);
+      continue;
+    }
+    const current = activeDueByClass.get(a.class_id) ?? null;
+    activeDueByClass.set(a.class_id, dueMs === null || current === null ? null : Math.max(current, dueMs));
+  }
   const conversationsByAssignment = new Map<string, DashboardConversation[]>();
   for (const c of conversations) {
     const aid = c.assignment?.id;
@@ -456,16 +471,14 @@ export default async function TeacherPage({
               </div>
               <div className="grid gap-2">
                 {(classes ?? []).map((c) => (
-                  <Link key={c.id} href={`/teacher/classes/${c.id}`} className="flex items-center justify-between gap-2 rounded-xl border border-border/70 px-3 py-2.5 transition-colors hover:border-primary/40 hover:bg-muted/40">
-                    <span className="text-sm font-medium">فصل {c.name}</span>
-                    {activeClassIds.has(c.id) ? (
-                      <Badge variant="secondary">{studentCounts.get(c.id) ?? 0} طالب</Badge>
-                    ) : (
-                      <Badge variant="secondary" className="font-normal text-muted-foreground">
-                        لا يوجد واجب نشط
-                      </Badge>
-                    )}
-                  </Link>
+                  <ClassTile
+                    key={c.id}
+                    href={`/teacher/classes/${c.id}`}
+                    name={c.name}
+                    studentCount={studentCounts.get(c.id) ?? 0}
+                    active={activeClassIds.has(c.id)}
+                    dueAtMs={activeClassIds.has(c.id) ? activeDueByClass.get(c.id) ?? null : null}
+                  />
                 ))}
                 {(classes ?? []).length === 0 ? <p className="text-sm text-muted-foreground">لا توجد صفوف.</p> : null}
               </div>
