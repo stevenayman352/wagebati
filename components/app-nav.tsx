@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { Suspense } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
-import { LayoutGrid, UserRound, Users, ClipboardList, BarChart3, LifeBuoy } from "lucide-react";
+import { LayoutGrid, Bell, UserRound, Users, ClipboardList, BarChart3, LifeBuoy } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type NavItem = { href: string; label: string; icon: typeof LayoutGrid };
@@ -19,6 +19,7 @@ const ROLE_ITEMS: Record<string, NavItem[]> = {
     { href: "/teacher/classes", label: "الفصول", icon: Users },
     { href: "/teacher/assignments", label: "الواجبات", icon: ClipboardList },
     { href: "/teacher/statistics", label: "الإحصائيات", icon: BarChart3 },
+    { href: "/notifications", label: "الإشعارات", icon: Bell },
     { href: "/teacher?tab=account", label: "الحساب", icon: UserRound }
   ]
 };
