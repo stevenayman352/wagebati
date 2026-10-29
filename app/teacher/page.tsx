@@ -346,10 +346,7 @@ export default async function TeacherPage({
             </span>
             <div>
               <h2 className="text-[var(--text-h2)] font-bold">إحصائيات الواجبات</h2>
-              <p className="text-xs text-muted-foreground">للواجبات النشطة فقط — مثل القائمة أعلاه</p>
-              <p className="text-xs text-muted-foreground">
-                كل طالب يُحتسب مرة واحدة، والصفوف التي لا تحتوي واجبًا نشطًا لا تُحتسب
-              </p>
+              <p className="text-xs text-muted-foreground">الواجبات النشطة فقط</p>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-2.5 md:grid-cols-3">
